@@ -1,6 +1,6 @@
-import { BlockStorage } from "./block-storage";
+import { BinaryStream } from "@serenityjs/binarystream";
 
-import type { BinaryStream } from "@serenityjs/binarystream";
+import { BlockStorage } from "./block-storage";
 
 /**
  * Represents a sub chunk.
@@ -15,6 +15,11 @@ export class SubChunk {
 	 * The layers of the sub chunk.
 	 */
 	public readonly layers: Array<BlockStorage>;
+
+	/**
+	 * The index of the sub chunk.
+	 */
+	public index: number | null = null;
 
 	/**
 	 * Creates a new sub chunk.
@@ -113,7 +118,7 @@ export class SubChunk {
 	public static serialize(
 		subchunk: SubChunk,
 		stream: BinaryStream,
-		y: number
+		nbt = false
 	): void {
 		// Write the version.
 		stream.writeByte(subchunk.version);
@@ -124,16 +129,20 @@ export class SubChunk {
 
 		stream.writeByte(y);
 
+		// Write the index.
+		if (subchunk.version === 9) {
+			// Check if the index is null.
+			if (subchunk.index === null)
+				throw new Error("SubChunk index is null for format version 9");
+
+			// Write the index.
+			stream.writeInt8(subchunk.index);
+		}
+
 		// Loop through each storage and serialize it.
 		for (const storage of subchunk.layers) {
 			// Serialize the storage.
-			BlockStorage.serialize(storage, stream);
-
-			//TEMP WATERLOG BLOCKS
-			stream.writeByte(3);
-			stream.writeBuffer(Buffer.from(new ArrayBuffer(512)));
-			stream.writeVarInt(2);
-			stream.writeVarInt(1_209_499_071); // Air id
+			BlockStorage.serialize(storage, stream, nbt);
 		}
 	}
 
@@ -142,20 +151,38 @@ export class SubChunk {
 	 *
 	 * @param stream The binary stream to read from.
 	 */
-	public static deserialize(stream: BinaryStream): SubChunk {
+	public static deserialize(stream: BinaryStream, nbt = false): SubChunk {
 		// Read the version.
 		const version = stream.readUint8();
 
 		// Read the storage count.
 		const count = stream.readUint8();
 
+		// Read the index if the version is 9.
+		let index = null;
+		if (version === 9) {
+			index = stream.readInt8();
+		}
+
 		// Loop through each storage and deserialize it.
 		const layers: Array<BlockStorage> = [];
 		for (let index = 0; index < count; index++) {
-			layers.push(BlockStorage.deserialize(stream));
+			layers.push(BlockStorage.deserialize(stream, nbt));
 		}
 
+		// Create a new sub chunk.
+		const subchunk = new SubChunk(version, layers);
+		subchunk.index = index;
+
 		// Return the sub chunk.
-		return new SubChunk(version, layers);
+		return subchunk;
+	}
+
+	public static from(buffer: Buffer, nbt = false): SubChunk {
+		// Create a new stream.
+		const stream = new BinaryStream(buffer);
+
+		// Deserialize the sub chunk.
+		return SubChunk.deserialize(stream, nbt);
 	}
 }
