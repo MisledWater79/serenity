@@ -1,3 +1,5 @@
+import { writeFileSync } from "node:fs";
+
 import {
 	ChunkCoords,
 	DimensionType,
@@ -278,14 +280,17 @@ export class Chunk {
 
 		// Biomes?
 		for (let index = 0; index < 24; index++) {
-			stream.writeByte(3);
-			stream.writeBuffer(Buffer.from(new ArrayBuffer(512)));
-			stream.writeVarInt(2);
-			stream.writeVarInt(0);
+			stream.writeByte(0);
+			stream.writeVarInt(1 << 1);
 		}
 
 		// Border blocks?
 		stream.writeByte(0);
+
+		//const buf = stream.getBuffer().slice(12);
+
+		//if (chunk.x == 0 && chunk.z == 1)
+		//writeFileSync(`CHUNKDAT/${chunk.x},${chunk.z}.json`, JSON.stringify(buf));
 
 		// Return the buffer.
 		return stream.getBuffer();

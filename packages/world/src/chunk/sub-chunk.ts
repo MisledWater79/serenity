@@ -124,10 +124,7 @@ export class SubChunk {
 		stream.writeByte(subchunk.version);
 
 		// Write the storage count.
-		//TEMPORARY +1 FOR WATERLOG LAYER
-		stream.writeByte(subchunk.layers.length + 1);
-
-		stream.writeByte(y);
+		stream.writeByte(subchunk.layers.length);
 
 		// Write the index.
 		if (subchunk.version === 9) {

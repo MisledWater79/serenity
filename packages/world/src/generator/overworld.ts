@@ -4,11 +4,9 @@ import { Chunk } from "../chunk";
 
 import { TerrainGenerator } from "./generator";
 import { Simplex } from "./simplex";
+import { type Spline, spline, type SplinePoint } from "./splines";
 
-import type { Chunk } from "../chunk";
-import { spline } from "./splines";
-import { Vector3f } from "@serenityjs/protocol";
-import type { DimensionType } from "@serenityjs/protocol";
+import type { Vector3f, DimensionType } from "@serenityjs/protocol";
 
 class Overworld extends TerrainGenerator {
 	/**
@@ -159,10 +157,80 @@ class Overworld extends TerrainGenerator {
 		return 0;
 	}
 
-	public getSplineVal(con: number, ero: number, pav: number, spline: object): number {
-		let cord = 0;
+	public cubicSpline(
+		x: number,
+		points: Array<number>,
+		values: Array<number>,
+		derivatives: Array<number>
+	): number {
 		//@ts-ignore
-		switch (spline.cordinate) {
+		// if (x < points[0] || x > points.at(-1)) {
+		// 	throw new Error(
+		// 		`Value to interpolate is outside the range of the spline. Value: ${x}, Range: ${points[0]} | ${points.at(-1)}`
+		// 	);
+		// }
+		if (x < points[0]) x = points[0];
+		//@ts-ignore
+		if (x > points.at(-1)) x = points.at(-1);
+
+		function h(index: number): number {
+			//@ts-ignore
+			return points[index + 1] - points[index];
+		}
+
+		function a(index: number): number {
+			//@ts-ignore
+			return values[index];
+		}
+
+		function b(index: number): number {
+			//@ts-ignore
+			return derivatives[index];
+		}
+
+		function c(index: number): number {
+			return (
+				//@ts-ignore
+				(3 / Math.pow(h(index), 2)) * (values[index + 1] - values[index]) -
+				//@ts-ignore
+				(derivatives[index + 1] + 2 * derivatives[index]) / h(index)
+			);
+		}
+
+		function d(index: number): number {
+			//@ts-ignore
+			return (
+				//@ts-ignore
+				(-2 / Math.pow(h(index), 3)) * (values[index + 1] - values[index]) +
+				//@ts-ignore
+				(derivatives[index + 1] + derivatives[index]) / Math.pow(h(index), 2)
+			);
+		}
+
+		let index = 0;
+		//@ts-ignore
+		while (index < points.length - 1 && x > points[index + 1]) {
+			index++;
+		}
+
+		//@ts-ignore
+		const dx = x - points[index];
+		return (
+			a(index) +
+			b(index) * dx +
+			c(index) * Math.pow(dx, 2) +
+			d(index) * Math.pow(dx, 3)
+		);
+	}
+
+	public getSplineVal(
+		con: number,
+		ero: number,
+		pav: number,
+		spline: Spline
+	): number {
+		let cord = 0;
+		switch (spline.coordinate) {
 			case "minecraft:overworld/continents": {
 				cord = con;
 				break;
@@ -176,29 +244,40 @@ class Overworld extends TerrainGenerator {
 				break;
 			}
 		}
-		const points = new Array<Array<number>>();
-		//@ts-ignore
-		for (let index = 0; index < spline.points.length; index++) {
-			//@ts-ignore
-			const p = spline.points[index];
-			if (typeof p?.value == "number")
-				//@ts-ignore
-				points.push([p?.location, p?.value]);
-			else //@ts-ignore
-				points.push([p?.location, this.getSplineVal(con, ero, pav, p?.value)]);
+		const points = new Array<number>();
+		const values = new Array<number>();
+		const derivatives = new Array<number>();
+		for (const p of spline.points) {
+			points.push(p.location);
+			derivatives.push(p.derivative);
+			if (typeof p.value == "number") values.push(p?.value);
+			else values.push(this.getSplineVal(con, ero, pav, p?.value));
 		}
-		return this.spline(cord, points);
+		const s = this.cubicSpline(cord, points, values, derivatives);
+		return s;
 	}
 
+	//FOR DEBUG
 	public getHeight(pos: Vector3f) {
-		const con = this.conNoise.noise(pos.x, pos.z);
-		const ero = this.eroNoise.noise(pos.x, pos.z);
-		const wei = this.weiNoise.noise(pos.x, pos.z);
+		const con = this.conNoise.noise(
+			Number(pos.x.toFixed(0)),
+			Number(pos.z.toFixed(0))
+		);
+		const ero = this.eroNoise.noise(
+			Number(pos.x.toFixed(0)),
+			Number(pos.z.toFixed(0))
+		);
+		const wei = this.weiNoise.noise(
+			Number(pos.x.toFixed(0)),
+			Number(pos.z.toFixed(0))
+		);
 		const pav = 1 - Math.abs(3 * Math.abs(wei) - 2);
 
 		//flat_cache(cache_2d((("minecraft:blend_offset" * (1 + (-1 * cache_once("minecraft:blend_alpha")))) + ((-0.5037500262260437 + n) * cache_once("minecraft:blend_alpha")))))
 		const n = this.getSplineVal(con, ero, pav, spline);
-		return n;
+
+		const h = this.linearInturp(n, -1.5, 1.5, -64, 320);
+		return h;
 	}
 
 	/**
@@ -209,13 +288,6 @@ class Overworld extends TerrainGenerator {
 		// Generate the chunk.
 		const chunk = new Chunk(cx, cz, type);
 
-		/*[-1, 40],
-		[-0.5, 42],
-		[-0.25, 63],
-		[0.25, 70],
-		[0.7, 90],
-		[0.9, 110],
-		[1, 120]*/
 		//53 gravel
 		// MOUNTAINS/WATER
 		for (let x = 0; x < 16; x++) {
@@ -225,21 +297,33 @@ class Overworld extends TerrainGenerator {
 				const wei = this.weiNoise.noise(chunk.x * 16 + x, chunk.z * 16 + z);
 				const pav = 1 - Math.abs(3 * Math.abs(wei) - 2);
 
-				//flat_cache(cache_2d((("minecraft:blend_offset" * (1 + (-1 * cache_once("minecraft:blend_alpha")))) + ((-0.5037500262260437 + n) * cache_once("minecraft:blend_alpha")))))
+				//bo = 0; ba = 1;
+
+				//flat_cache(
+				//	cache_2d(
+				//		("minecraft:blend_offset" *
+				//			(1 +
+				//				(-1 * cache_once("minecraft:blend_alpha"))
+				//			)
+				//		) + (
+				//			(-0.5037500262260437 + n) * cache_once("minecraft:blend_alpha")
+				//		)
+				//	)
+				//)
 				const n = this.getSplineVal(con, ero, pav, spline);
 
-				const h = this.linearInturp(n, -1.5, 1.5, -64, 320);
+				const h = this.linearInturp(n, -1.5, 1.5, -64, 320) - 66;
 				for (let index = -64; index < h; index++) {
-					chunk.setPermutation(x, index, z, this.stone);
+					chunk.setPermutation(x, index, z, this.stone, false);
 					if (index >= h - 3) {
-						if (h >= 64.545 || con > -0.225) {
-							//chunk.setPermutation(x, index, z, this.dirt);
-							//if (index >= h - 1) chunk.setPermutation(x, index, z, this.grass);
+						if (h >= 64.545) {
+							chunk.setPermutation(x, index, z, this.dirt);
+							if (index >= h - 1) chunk.setPermutation(x, index, z, this.grass);
 						} else {
 							if (h >= 55.55) {
-								//chunk.setPermutation(x, index, z, this.sand);
+								chunk.setPermutation(x, index, z, this.sand);
 							} else {
-								//chunk.setPermutation(x, index, z, this.gravel);
+								chunk.setPermutation(x, index, z, this.gravel);
 							}
 						}
 					}
@@ -256,7 +340,7 @@ class Overworld extends TerrainGenerator {
 				// lava 55 so 56
 				if (h < 63) {
 					for (let index = h + 1; index < 63; index++) {
-						//chunk.setPermutation(x, index, z, this.water);
+						chunk.setPermutation(x, index, z, this.water);
 					}
 				}
 			}
@@ -282,12 +366,9 @@ class Overworld extends TerrainGenerator {
 		// DEBUG
 		// for (let x = 0; x < 16; x++) {
 		// 	for (let z = 0; z < 16; z++) {
-		// 		for (let y = -64; y < 320; y++) {
-		// 			chunk.setPermutation(x, y, z, this.air);
-		// 		}
-		// 		for (let y = -64; y < -35; y++) {
+		// 		for (let y = 0; y < 32; y++) {
 		// 			const s = Math.random();
-		// 			if (s <= 0.5) chunk.setPermutation(x, y, z, this.stone);
+		// 			chunk.setPermutation(x, y, z, this.stone, false);
 		// 		}
 		// 	}
 		// }
@@ -302,54 +383,52 @@ class Overworld extends TerrainGenerator {
 		// //if (c >= -0.1 && c <= 0.1) chunk.setPermutation(x, y, z, this.air);
 
 		// Lava & Bedrock.
-		for (let x = 0; x < 16; x++) {
-			for (let z = 0; z < 16; z++) {
-				for (let y = -64; y < 320; y++) {
-					if (chunk.getPermutation(x, y, z) == this.air && y < -54)
-						//chunk.setPermutation(x, y, z, this.lava);
-					switch (y) {
-						case -60: {
-							if (
-								this.solNoise.noise(
-									(chunk.x * 16 + x) * 64,
-									(chunk.z * 16 + z) * 64,
-									y
-								) >= 0.3
-							)
-								chunk.setPermutation(x, y, z, this.bedrock);
-							break;
-						}
-						case -61: {
-							if (
-								this.solNoise.noise(
-									(chunk.x * 16 + x) * 32,
-									(chunk.z * 16 + z) * 32,
-									y
-								) >= 0
-							)
-								chunk.setPermutation(x, y, z, this.bedrock);
-							break;
-						}
-						case -62: {
-							if (
-								this.solNoise.noise(
-									(chunk.x * 16 + x) * 16,
-									(chunk.z * 16 + z) * 16,
-									y
-								) >= -0.3
-							)
-								chunk.setPermutation(x, y, z, this.bedrock);
-							break;
-						}
-					}
-				}
+		// for (let x = 0; x < 16; x++) {
+		// 	for (let z = 0; z < 16; z++) {
+		// 		for (let y = 0; y < 5; y++) {
+		// 			//if (chunk.getPermutation(x, y, z) == this.air && y < -54)
+		// 			//chunk.setPermutation(x, y, z, this.lava);
+		// 			switch (y) {
+		// 				case 4: {
+		// 					if (
+		// 						this.solNoise.noise(
+		// 							(chunk.x * 16 + x) * 64,
+		// 							(chunk.z * 16 + z) * 64,
+		// 							y
+		// 						) >= 0.3
+		// 					)
+		// 						chunk.setPermutation(x, y, z, this.bedrock, false);
+		// 					break;
+		// 				}
+		// 				case 3: {
+		// 					if (
+		// 						this.solNoise.noise(
+		// 							(chunk.x * 16 + x) * 32,
+		// 							(chunk.z * 16 + z) * 32,
+		// 							y
+		// 						) >= 0
+		// 					)
+		// 						chunk.setPermutation(x, y, z, this.bedrock, false);
+		// 					break;
+		// 				}
+		// 				case 2: {
+		// 					if (
+		// 						this.solNoise.noise(
+		// 							(chunk.x * 16 + x) * 16,
+		// 							(chunk.z * 16 + z) * 16,
+		// 							y
+		// 						) >= -0.3
+		// 					)
+		// 						chunk.setPermutation(x, y, z, this.bedrock, false);
+		// 					break;
+		// 				}
+		// 			}
+		// 		}
 
-				chunk.setPermutation(x, -63, z, this.bedrock);
-				chunk.setPermutation(x, -64, z, this.bedrock);
-			}
-		}
-
-		// console.log("chunk done");
+		// 		chunk.setPermutation(x, 1, z, this.bedrock, false);
+		// 		chunk.setPermutation(x, 0, z, this.bedrock, false);
+		// 	}
+		// }
 
 		// Return the chunk.
 		return chunk;

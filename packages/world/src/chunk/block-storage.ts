@@ -161,7 +161,7 @@ class BlockStorage {
 		}
 
 		// Write the bits per block.
-		stream.writeByte((bitsPerBlock << 1) | 1);
+		stream.writeUint8((bitsPerBlock << 1) | 1);
 
 		// Calculate the blocks per word & words per block.
 		const blocksPerWord = Math.floor(32 / bitsPerBlock);
