@@ -4,6 +4,7 @@ import { resolve } from "node:path";
 import {
 	InternalProvider,
 	Overworld,
+	OverworldTestGenerator,
 	Superflat,
 	Void,
 	type TerrainGenerator,
@@ -75,6 +76,7 @@ class Worlds {
 		// Register the default generators.
 		this.registerGenerator(Superflat);
 		this.registerGenerator(Overworld);
+		this.registerGenerator(OverworldTestGenerator);
 		this.registerGenerator(Void);
 	}
 

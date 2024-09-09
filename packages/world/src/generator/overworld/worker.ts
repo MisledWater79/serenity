@@ -1,18 +1,16 @@
-import { BlockPermutation, BlockIdentifier } from "@serenityjs/block";
+import { DimensionType, Vector3f } from "@serenityjs/protocol";
+import { BlockIdentifier, BlockPermutation } from "@serenityjs/block";
 
-import { Chunk } from "../chunk";
+import { Chunk } from "../../chunk";
+import { TerrainWorker, Worker } from "../worker";
+import { Simplex } from "../simplex";
+import { factor, jaged, offset, Spline } from "../splines";
 
-import { TerrainGenerator } from "./generator";
-import { Simplex } from "./simplex";
-import { offset, type Spline, type SplinePoint } from "./splines";
+import { OverworldTestGenerator } from "./generator";
 
-import type { Vector3f, DimensionType } from "@serenityjs/protocol";
-
-class Overworld extends TerrainGenerator {
-	/**
-	 * The identifier for the generator.
-	 */
-	public static readonly identifier = "overworld";
+@Worker(OverworldTestGenerator)
+export class OverworldWorker extends TerrainWorker {
+	public static readonly path = __filename;
 
 	public readonly solNoise: Simplex; //  Solid Noise
 	public readonly cavNoise: Simplex; //  Cave Noise
@@ -42,14 +40,9 @@ class Overworld extends TerrainGenerator {
 	public readonly air: BlockPermutation;
 	public readonly glass: BlockPermutation;
 
-	public constructor() {
-		super(69);
-
+	public constructor(seed: number) {
+		super(seed, OverworldTestGenerator);
 		Simplex.currentSeed = this.seed;
-
-		//distrib:
-		//scale: size closer to one smaller
-		//amplitude:
 
 		this.solNoise = new Simplex({
 			distrib: 1,
@@ -280,40 +273,26 @@ class Overworld extends TerrainGenerator {
 		return h;
 	}
 
-	/**
-	 * Generates a chunk.
-	 *
-	 */
 	public apply(cx: number, cz: number, type: DimensionType): Chunk {
-		// Generate the chunk.
 		const chunk = new Chunk(cx, cz, type);
+		chunk.ready = false;
 
-		//53 gravel
-		// MOUNTAINS/WATER
 		for (let x = 0; x < 16; x++) {
 			for (let z = 0; z < 16; z++) {
 				const con = this.conNoise.noise(chunk.x * 16 + x, chunk.z * 16 + z);
 				const ero = this.eroNoise.noise(chunk.x * 16 + x, chunk.z * 16 + z);
 				const wei = this.weiNoise.noise(chunk.x * 16 + x, chunk.z * 16 + z);
 				const pav = 1 - Math.abs(3 * Math.abs(wei) - 2);
+				const o = this.getSplineVal(con, ero, pav, offset) - 0.503_750_026_226_043_7;
+				const d = this.linearInturp(o, -1.5, 1.5, -64, 320);
+				const f = this.getSplineVal(con, ero, pav, factor);
+				const j = this.getSplineVal(con, ero, pav, jaged);
 
-				//bo = 0; ba = 1;
+				const n = (d * f - 0.703_125) * ;
 
-				//flat_cache(
-				//	cache_2d(
-				//		("minecraft:blend_offset" *
-				//			(1 +
-				//				(-1 * cache_once("minecraft:blend_alpha"))
-				//			)
-				//		) + (
-				//			(-0.5037500262260437 + n) * cache_once("minecraft:blend_alpha")
-				//		)
-				//	)
-				//)
-				const n = this.getSplineVal(con, ero, pav, offset);
-
-				const h = this.linearInturp(n, -1.5, 1.5, -64, 320) - 66;
-				for (let index = -64; index < h; index++) {
+				const h = d;
+				for (let index = 0; index < h; index++) {
+					if (index > 255) break;
 					chunk.setPermutation(x, index, z, this.stone, false);
 					if (index >= h - 3) {
 						if (h >= 64.545) {
@@ -327,67 +306,22 @@ class Overworld extends TerrainGenerator {
 							}
 						}
 					}
-					// if (index >= 64 && index >= h - 4) {
-					// 	chunk.setPermutation(x, index, z, this.dirt);
-					// 	if (index >= h - 1) chunk.setPermutation(x, index, z, this.grass);
-					// } else if (index >= h - 4) {
-					// 	if (index >= 55 && index >= h - 4)
-					// 		chunk.setPermutation(x, index, z, this.sand);
-					// 	else if (index >= h - 4)
-					// 		chunk.setPermutation(x, index, z, this.gravel);
-					// }
 				}
 				// lava 55 so 56
-				if (h < 63) {
-					for (let index = h + 1; index < 63; index++) {
-						chunk.setPermutation(x, index, z, this.water);
-					}
-				}
+				// if (h < 63) {
+				// 	for (let index = h + 1; index < 63; index++) {
+				// 		chunk.setPermutation(x, index, z, this.water);
+				// 	}
+				// }
 			}
 		}
-
-		//Generate the terrain.
-		// for (let x = 0; x < 16; x++) {
-		// 	for (let z = 0; z < 16; z++) {
-		// 		for (let y = 0; y < 128; y++) {
-		// 			const s = this.solNoise.noise(chunk.x * 16 + x, y, chunk.z * 16 + z);
-		// 			// if (chunk.x * 16 + x == 0 && chunk.z * 16 + z == 0) {
-		// 			// 	if (y > 10) break;
-		// 			// 	console.log(s);
-		// 			// 	console.log(x, y, z, chunk.x * 16 + x, chunk.z * 16 + z);
-		// 			// }
-		// 			if (s <= -0.522 && chunk.getPermutation(x, y, z) != this.bedrock)
-		// 				chunk.setPermutation(x, y, z, this.air);
-		// 			//if (s > 0.3) chunk.setPermutation(x, y, z, this.sponge);
-		// 		}
-		// 	}
-		// }
-
-		// DEBUG
-		// for (let x = 0; x < 16; x++) {
-		// 	for (let z = 0; z < 16; z++) {
-		// 		for (let y = 0; y < 32; y++) {
-		// 			const s = Math.random();
-		// 			chunk.setPermutation(x, y, z, this.stone, false);
-		// 		}
-		// 	}
-		// }
-
-		// //let c = this.cavNoise.noise(chunk.x * 16 + x, y, chunk.z * 16 + z);
-
-		// s -= y / 80;
-		// //c += 0.0001 * y * y;
-		// if (s > 0) {
-		// 	chunk.setPermutation(x, y, z, this.stone);
-		// }
-		// //if (c >= -0.1 && c <= 0.1) chunk.setPermutation(x, y, z, this.air);
 
 		// Lava & Bedrock.
 		// for (let x = 0; x < 16; x++) {
 		// 	for (let z = 0; z < 16; z++) {
 		// 		for (let y = 0; y < 5; y++) {
-		// 			//if (chunk.getPermutation(x, y, z) == this.air && y < -54)
-		// 			//chunk.setPermutation(x, y, z, this.lava);
+		// 			if (chunk.getPermutation(x, y, z) == this.air && y < -54)
+		// 			chunk.setPermutation(x, y, z, this.lava);
 		// 			switch (y) {
 		// 				case 4: {
 		// 					if (
@@ -430,9 +364,6 @@ class Overworld extends TerrainGenerator {
 		// 	}
 		// }
 
-		// Return the chunk.
 		return chunk;
 	}
 }
-
-export { Overworld };
