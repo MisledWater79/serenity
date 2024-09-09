@@ -3,7 +3,7 @@ import { writeFileSync } from "node:fs";
 import {
 	ChunkCoords,
 	DimensionType,
-	type Vector3f
+	type IPosition
 } from "@serenityjs/protocol";
 import { BinaryStream } from "@serenityjs/binarystream";
 import { BlockIdentifier, BlockPermutation } from "@serenityjs/block";
@@ -75,6 +75,8 @@ export class Chunk {
 	 * The sub chunks of the chunk.
 	 */
 	public readonly subchunks: Array<SubChunk>;
+
+	public cache: Buffer | null = null;
 
 	/**
 	 * If the chunk has been modified, and has not been saved.
@@ -155,6 +157,9 @@ export class Chunk {
 
 		// Set the chunk as dirty.
 		dirty === true ? (this.dirty = true) : null;
+
+		// Set the cache as null.
+		this.cache = null;
 	}
 
 	/**
@@ -162,15 +167,22 @@ export class Chunk {
 	 * @param position The position to query.
 	 * @returns The topmost level in which a permutation is not air.
 	 */
-	public getTopmostLevel(position: Vector3f): number {
+	public getTopmostLevel(position: IPosition): number {
 		// Get the Y level.
-		for (let y = position.y; y >= 0; y--) {
+		for (let y = position.y; y >= -64; y--) {
+			// Get the permutation at the position.
 			const permutation = this.getPermutation(position.x, y, position.z);
-			if (permutation.type.identifier !== BlockIdentifier.Air) return y;
+
+			// Check if the permutation is air or is not solid.
+			if (permutation.type.identifier === BlockIdentifier.Air) continue;
+			if (!permutation.type.solid) continue;
+
+			// Return the Y level.
+			return y;
 		}
 
 		// Return 0 if no block was found.
-		return 0;
+		return -64;
 	}
 
 	/**
@@ -178,7 +190,7 @@ export class Chunk {
 	 * @param position The position to query.
 	 * @returns The bottommost level in which a permutation is not air.
 	 */
-	public getBottommostLevel(position: Vector3f): number {
+	public getBottommostLevel(position: IPosition): number {
 		// Get the Y level.
 		for (let y = 0; y <= position.y; y++) {
 			const permutation = this.getPermutation(position.x, y, position.z);
@@ -194,9 +206,14 @@ export class Chunk {
 	 * @param index The index.
 	 */
 	public getSubChunk(index: number): SubChunk {
-		// Check if the index is valid.
-		if (index < 0 || index > Chunk.MAX_SUB_CHUNKS)
-			throw new Error("Invalid sub chunk index.");
+		// Check if the index is below 0.
+		// Then will we return the bottom sub chunk.
+		if (index < 0) return this.getSubChunk(0);
+
+		// Check if the index is above the maximum sub chunks.
+		// Then will we return the top sub chunk.
+		if (index >= Chunk.MAX_SUB_CHUNKS)
+			return this.getSubChunk(Chunk.MAX_SUB_CHUNKS - 1);
 
 		// Check if the sub chunk exists.
 		if (!this.subchunks[index]) {
@@ -255,7 +272,16 @@ export class Chunk {
 		return true;
 	}
 
+	/**
+	 * Serialize the chunk into a buffer.
+	 * @param chunk The chunk to serialize.
+	 * @param nbt If block palette should be serialized as NBT.
+	 * @returns The serialized buffer.
+	 */
 	public static serialize(chunk: Chunk, nbt = false): Buffer {
+		// Check if the chunk has a cache.
+		if (chunk.cache) return chunk.cache;
+
 		// Create a new stream.
 		const stream = new BinaryStream();
 
@@ -287,15 +313,22 @@ export class Chunk {
 		// Border blocks?
 		stream.writeByte(0);
 
-		//const buf = stream.getBuffer().slice(12);
-
-		//if (chunk.x == 0 && chunk.z == 1)
-		//writeFileSync(`CHUNKDAT/${chunk.x},${chunk.z}.json`, JSON.stringify(buf));
+		// Set the cache of the chunk.
+		chunk.cache = stream.getBuffer();
 
 		// Return the buffer.
-		return stream.getBuffer();
+		return chunk.cache;
 	}
 
+	/**
+	 * Deserialize a buffer into a chunk.
+	 * @param type The dimension type of the chunk.
+	 * @param x The X coordinate of the chunk.
+	 * @param z The Z coordinate of the chunk.
+	 * @param buffer The buffer to deserialize.
+	 * @param nbt If block palette should be deserialized as NBT.
+	 * @returns The deserialized chunk.
+	 */
 	public static deserialize(
 		type: DimensionType,
 		x: number,
@@ -329,7 +362,10 @@ export class Chunk {
 		// Border blocks?
 		stream.readByte();
 
+		// Create a new chunk.
+		const chunk = new Chunk(x, z, type, subchunks);
+
 		// Return the chunk.
-		return new Chunk(x, z, type, subchunks);
+		return chunk;
 	}
 }
