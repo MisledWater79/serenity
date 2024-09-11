@@ -30,10 +30,6 @@ export class OverworldWorker extends TerrainWorker {
 	public readonly grass: BlockPermutation;
 	public readonly water: BlockPermutation;
 	public readonly lava: BlockPermutation;
-	public readonly tulip_pink: BlockPermutation;
-	public readonly poppy: BlockPermutation;
-	public readonly dandelion: BlockPermutation;
-	public readonly cornflower: BlockPermutation;
 	public readonly oak_log: BlockPermutation;
 	public readonly oak_leaves: BlockPermutation;
 	public readonly sponge: BlockPermutation;
@@ -108,14 +104,6 @@ export class OverworldWorker extends TerrainWorker {
 		this.grass = BlockPermutation.resolve(BlockIdentifier.GrassBlock);
 		this.water = BlockPermutation.resolve(BlockIdentifier.Water);
 		this.lava = BlockPermutation.resolve(BlockIdentifier.Lava);
-		this.tulip_pink = BlockPermutation.resolve(BlockIdentifier.YellowFlower, {
-			flower_type: "tulip_pink"
-		});
-		this.poppy = BlockPermutation.resolve(BlockIdentifier.YellowFlower);
-		this.dandelion = BlockPermutation.resolve(BlockIdentifier.YellowFlower);
-		this.cornflower = BlockPermutation.resolve(BlockIdentifier.YellowFlower, {
-			flower_type: "cornflower"
-		});
 		this.oak_log = BlockPermutation.resolve(BlockIdentifier.OakLog);
 		this.oak_leaves = BlockPermutation.resolve(BlockIdentifier.OakLeaves);
 		this.sponge = BlockPermutation.resolve(BlockIdentifier.Sponge);
@@ -279,16 +267,19 @@ export class OverworldWorker extends TerrainWorker {
 
 		for (let x = 0; x < 16; x++) {
 			for (let z = 0; z < 16; z++) {
+				chunk.setPermutation(x, 0, z, this.bedrock, false);
+				continue;
 				const con = this.conNoise.noise(chunk.x * 16 + x, chunk.z * 16 + z);
 				const ero = this.eroNoise.noise(chunk.x * 16 + x, chunk.z * 16 + z);
 				const wei = this.weiNoise.noise(chunk.x * 16 + x, chunk.z * 16 + z);
 				const pav = 1 - Math.abs(3 * Math.abs(wei) - 2);
-				const o = this.getSplineVal(con, ero, pav, offset) - 0.503_750_026_226_043_7;
+				const o =
+					this.getSplineVal(con, ero, pav, offset) - 0.503_750_026_226_043_7;
 				const d = this.linearInturp(o, -1.5, 1.5, -64, 320);
 				const f = this.getSplineVal(con, ero, pav, factor);
-				const j = this.getSplineVal(con, ero, pav, jaged);
+				const index = this.getSplineVal(con, ero, pav, jaged);
 
-				const n = (d * f - 0.703_125) * ;
+				const n = d * f - 0.703_125;
 
 				const h = d;
 				for (let index = 0; index < h; index++) {
@@ -363,6 +354,8 @@ export class OverworldWorker extends TerrainWorker {
 		// 		chunk.setPermutation(x, 0, z, this.bedrock, false);
 		// 	}
 		// }
+
+		chunk.ready = true;
 
 		return chunk;
 	}
