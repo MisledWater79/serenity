@@ -36,7 +36,7 @@ import {
 import { CardinalDirection, type EntityInteractType } from "../enums";
 import {
 	EntityAlwaysShowNametagComponent,
-	EntityComponent,
+	type EntityComponent,
 	EntityEffectsComponent,
 	EntityHealthComponent,
 	EntityIsVisibleComponent,
@@ -184,7 +184,7 @@ class Entity {
 		// Readonly properties
 		this.type = EntityType.get(identifier) as EntityType;
 		this.runtime = Entity.runtime++;
-		this.unique = uniqueId ?? BigInt(-Date.now() >> 4) + this.runtime;
+		this.unique = uniqueId ?? BigInt(Math.abs(Date.now() >> 4)) + this.runtime;
 
 		// Mutable properties
 		this.dimension = dimension;
@@ -195,9 +195,26 @@ class Entity {
 		// Check if the entity is a player
 		if (this.type.identifier === EntityIdentifier.Player) return;
 
+		// Get the components of the entity from the entity palette
+		const components = this.dimension.world.entities.getRegistryFor(identifier);
+
 		// Register the type components to the entity.
-		for (const component of EntityComponent.registry.get(identifier) ?? [])
-			new component(this, component.identifier);
+		for (const component of components) {
+			// Skip if the entity already has the component
+			if (this.components.has(component.identifier)) continue;
+
+			// Try to create the component
+			try {
+				// Create a new instance of the component
+				new component(this, component.identifier);
+			} catch (reason) {
+				// Log the error
+				this.dimension.world.logger.error(
+					`Failed to create component "${component.identifier}" for entity "${this.unique}".`,
+					reason
+				);
+			}
+		}
 	}
 
 	/**
@@ -339,6 +356,9 @@ class Entity {
 
 		// Add the entity to the dimension
 		this.dimension.entities.set(this.unique, this);
+
+		// Set the alive property of the entity to true
+		this.isAlive = true;
 
 		// Trigger the onSpawn method of all applicable components
 		for (const component of this.getComponents()) component.onSpawn?.();
@@ -661,12 +681,14 @@ class Entity {
 		sync = true
 	): Attribute {
 		const attribute = new Attribute(
-			value,
-			defaultValue,
-			maxValue,
 			minValue,
-			[],
-			name
+			maxValue,
+			value,
+			-Infinity,
+			Infinity,
+			defaultValue,
+			name,
+			[]
 		);
 
 		this.addAttribute(attribute, sync);
@@ -1210,6 +1232,48 @@ class Entity {
 	}
 
 	/**
+	 * Forces the entity to drop an item from its inventory.
+	 * @param slot The slot to drop the item from.
+	 * @param amount The amount of items to drop.
+	 * @param container The container to drop the item from.
+	 * @returns Whether or not the item was dropped.
+	 */
+	public dropItem(slot: number, amount: number, container: Container): boolean {
+		// Check if the entity has an inventory component
+		if (!this.hasComponent("minecraft:inventory")) return false;
+
+		// Get the item from the slot
+		const item = container.takeItem(slot, amount);
+
+		// Check if the item is valid
+		if (!item) return false;
+
+		// Get the entity's position and rotation
+		const { x, y, z } = this.position;
+		const { headYaw, pitch } = this.rotation;
+
+		// Normalize the pitch & headYaw, so the entity will be spawned in the correct direction
+		const headYawRad = (headYaw * Math.PI) / 180;
+		const pitchRad = (pitch * Math.PI) / 180;
+
+		// Calculate the velocity of the entity based on the entitys's rotation
+		const velocity = new Vector3f(
+			(-Math.sin(headYawRad) * Math.cos(pitchRad)) / 3,
+			-Math.sin(pitchRad) / 2,
+			(Math.cos(headYawRad) * Math.cos(pitchRad)) / 3
+		);
+
+		// Spawn the entity
+		const entity = this.dimension.spawnItem(item, new Vector3f(x, y - 0.25, z));
+
+		// Set the velocity of the entity
+		entity.setMotion(velocity);
+
+		// Return true as the item was dropped
+		return true;
+	}
+
+	/**
 	 * Creates actor data from a given entity.
 	 * @param entity The entity to generate the actor data from.
 	 * @returns The generated actor data.
@@ -1264,10 +1328,13 @@ class Entity {
 		// Add the components to the root tag.
 		root.addTag(components);
 
+		// Get the world from the entity.
+		const world = entity.dimension.world;
+
 		// Iterate over the components and serialize them.
 		for (const component of entity.getComponents()) {
 			// Get the component type.
-			const type = EntityComponent.components.get(component.identifier);
+			const type = world.entities.components.get(component.identifier);
 			if (!type) continue;
 
 			// Create a data compound tag for the data to be written to.
@@ -1331,13 +1398,16 @@ class Entity {
 		const components = tag.getTag("SerenityComponents")
 			?.value as Array<CompoundTag>;
 
+		// Get the world from the entity.
+		const world = entity.dimension.world;
+
 		// Iterate over the components and deserialize them.
 		for (const componentTag of components) {
 			// Get the identifier of the component.
 			const identifier = componentTag.getTag("identifier")?.value as string;
 
 			// Get the component type.
-			const type = EntityComponent.components.get(identifier);
+			const type = world.entities.components.get(identifier);
 			if (!type) continue;
 
 			// Get the data of the component.

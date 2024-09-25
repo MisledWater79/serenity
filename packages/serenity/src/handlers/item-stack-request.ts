@@ -87,6 +87,80 @@ class ItemStackRequest extends SerenityHandler {
 					} else throw new Error("Invalid count possible.");
 				}
 
+				if (action.drop) {
+					// Get the request.
+					const request = action.drop;
+
+					// Get the source and slot.
+					const source = request.source;
+					const slot = source.slot;
+					const amount = request.amount;
+
+					// Get the source container.
+					const container = player.getContainer(source.container.identifier);
+
+					// Check if the container exists.
+					if (!container)
+						throw new Error(
+							`Invalid container: ${source.container.identifier}`
+						);
+
+					// Force the player to drop the item.
+					player.dropItem(slot, amount, container);
+				}
+
+				if (action.swap) {
+					// Get the request.
+					const request = action.swap;
+
+					// Get the source and destination.
+					const source = request.source;
+					const destination = request.destination;
+
+					// Get the source container.
+					const sourceContainer = player.getContainer(
+						source.container.identifier
+					);
+
+					// Check if the source container exists.
+					if (!sourceContainer)
+						throw new Error(
+							`Invalid source container: ${source.container.identifier}`
+						);
+
+					// Get the destination container.
+					const destinationContainer = player.getContainer(
+						destination.container.identifier
+					);
+
+					// Check if the destination container exists.
+					if (!destinationContainer)
+						throw new Error(
+							`Invalid destination container: ${destination.container.identifier}`
+						);
+
+					// Get the source item.
+					const sourceItem = sourceContainer.getItem(source.slot);
+
+					// Check if the source item exists.
+					if (!sourceItem) throw new Error("Invalid source item.");
+
+					// Get the destination item.
+					const destinationItem = destinationContainer.getItem(
+						destination.slot
+					);
+
+					// Check if the destination item exists.
+					if (!destinationItem) throw new Error("Invalid destination item.");
+
+					// Swap the items.
+					sourceContainer.swapItems(
+						source.slot,
+						destination.slot,
+						destinationContainer
+					);
+				}
+
 				// Check if the action is a destroy or consume action.
 				if (action.destroyOrConsume) {
 					// Get the request.
@@ -147,7 +221,10 @@ class ItemStackRequest extends SerenityHandler {
 					// Add the items to the destination.
 					for (const descriptor of descriptors) {
 						// Convert the descriptor to an item stack.
-						const itemStack = ItemStack.fromNetworkInstance(descriptor);
+						const itemStack = ItemStack.fromNetworkInstance(
+							descriptor,
+							player.dimension
+						);
 
 						// Check if the item stack exists
 						if (!itemStack)
@@ -200,7 +277,12 @@ class ItemStackRequest extends SerenityHandler {
 						);
 
 					// Create the item stack.
-					const itemStack = ItemStack.create(creativeItem.type, amount);
+					const itemStack = ItemStack.create(
+						creativeItem.type,
+						amount,
+						0,
+						player.dimension
+					);
 
 					// Set the item stack in the container
 					container.setItem(destination.slot, itemStack);

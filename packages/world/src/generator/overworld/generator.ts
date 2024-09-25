@@ -1,16 +1,22 @@
-import { DimensionType } from "@serenityjs/protocol";
-import { Chunk } from "../../chunk";
 import { TerrainGenerator } from "../generator";
+import { Chunk } from "../../chunk";
 
-export class OverworldTestGenerator extends TerrainGenerator {
-	public static readonly identifier = "overworld_test";
+import type { DimensionType } from "@serenityjs/protocol";
 
-  public apply(cx: number, cz: number, type: DimensionType): Chunk {
-      const chunk = new Chunk(cx, cz, type);
-      chunk.ready = false;
+class Overworld extends TerrainGenerator {
+	public static readonly identifier = "overworld";
 
-      this.handoff(chunk);
-      
-      return chunk;
-  }
+	public apply(cx: number, cz: number, type: DimensionType): Chunk {
+		// Create a new chunk and set it as not ready
+		const chunk = new Chunk(cx, cz, type);
+		chunk.ready = false;
+
+		// Hand the chunk to the worker
+		this.handoff(chunk);
+
+		// Return the chunk
+		return chunk;
+	}
 }
+
+export { Overworld };

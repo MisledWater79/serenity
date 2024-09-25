@@ -22,7 +22,10 @@ import type {
 	EntityDamageComponent,
 	EntityProjectileComponent,
 	EntityCollisionBoxComponent,
-	EntityLootComponent
+	EntityLootComponent,
+	EntityIsBabyComponent,
+	EntityInteractTextComponent,
+	EntityFallingBlockComponent
 } from "../../components";
 
 /**
@@ -31,6 +34,7 @@ import type {
 interface EntityAttributeComponents {
 	"minecraft:health": EntityHealthComponent;
 	"minecraft:absorption": PlayerAbsorptionComponent;
+	"minecraft:falling_block": EntityFallingBlockComponent;
 }
 /**
  * The metadata components of an entity.
@@ -43,6 +47,7 @@ interface EntityMetadataComponents {
 	"minecraft:boundingbox_width": EntityBoundingWidthComponent;
 	"minecraft:boundingbox_height": EntityBoundingHeightComponent;
 	"minecraft:scale": EntityScaleComponent;
+	"minecraft:is_baby": EntityIsBabyComponent;
 	"minecraft:item": EntityItemComponent;
 	"minecraft:physics": EntityPhysicsComponent;
 	"minecraft:is_visible": EntityIsVisibleComponent;
@@ -50,6 +55,7 @@ interface EntityMetadataComponents {
 	"minecraft:variant": EntityVariantComponent;
 	"minecraft:has_collision": EntityHasCollisionComponent;
 	"minecraft:air_supply": EntityAirSupplyComponent;
+	"minecraft:interact_text": EntityInteractTextComponent;
 }
 
 /**

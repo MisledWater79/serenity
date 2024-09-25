@@ -1,5 +1,5 @@
 import {
-	BlockCoordinates,
+	BlockPosition,
 	BlockEventPacket,
 	BlockEventType,
 	ContainerId,
@@ -108,7 +108,7 @@ class BlockInventoryComponent extends BlockComponent {
 
 			// Create a new level sound event packet
 			const sound = new LevelSoundEventPacket();
-			sound.position = BlockCoordinates.toVector3f(this.block.position);
+			sound.position = BlockPosition.toVector3f(this.block.position);
 			sound.data = this.block.permutation.network;
 			sound.actorIdentifier = String();
 			sound.isBabyMob = false;
@@ -145,7 +145,7 @@ class BlockInventoryComponent extends BlockComponent {
 
 			// Create a new level sound event packet
 			const sound = new LevelSoundEventPacket();
-			sound.position = BlockCoordinates.toVector3f(this.block.position);
+			sound.position = BlockPosition.toVector3f(this.block.position);
 			sound.data = this.block.permutation.network;
 			sound.actorIdentifier = String();
 			sound.isBabyMob = false;
@@ -178,9 +178,9 @@ class BlockInventoryComponent extends BlockComponent {
 		}
 	}
 
-	public onBreak(player?: Player): void {
+	public onBreak(player?: Player): boolean {
 		// Check if a player is provided
-		if (!player) return;
+		if (!player) return false;
 
 		// Loop through the items in the container
 		for (const item of this.container.storage) {
@@ -197,6 +197,9 @@ class BlockInventoryComponent extends BlockComponent {
 			// Add some upwards velocity to the item.
 			entity.setMotion(new Vector3f(0, 0.1, 0));
 		}
+
+		// Return true to break the block
+		return true;
 	}
 
 	public static serialize(
@@ -242,7 +245,7 @@ class BlockInventoryComponent extends BlockComponent {
 			const slot = itemTag.getTag("Slot")?.value as number;
 
 			// Deserialize the item stack.
-			const itemStack = ItemStack.deserialize(itemTag);
+			const itemStack = ItemStack.deserialize(block.dimension, itemTag);
 
 			// Add the item stack to the container.
 			component.container.setItem(slot, itemStack);

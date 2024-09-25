@@ -12,7 +12,9 @@ import {
 	type TerrainGenerator,
 	type WorldProvider,
 	WorldInitializeSignal,
-	type WorldEventSignals
+	type WorldEventSignals,
+	End,
+	Nether
 } from "@serenityjs/world";
 import { Logger, LoggerColors } from "@serenityjs/logger";
 import {
@@ -87,6 +89,8 @@ class Worlds extends Emitter<WorldEventSignals> {
 		this.registerGenerator(Overworld);
 		this.registerGenerator(OverworldTestGenerator);
 		this.registerGenerator(Void);
+		this.registerGenerator(End);
+		this.registerGenerator(Nether);
 	}
 
 	/**
@@ -200,6 +204,9 @@ class Worlds extends Emitter<WorldEventSignals> {
 
 					// Add the world to the worlds map.
 					this.entries.set(world.identifier, world);
+
+					// Startup the provider.
+					world.provider.onStartup();
 				} else {
 					// Log an error message.
 					this.logger.error(
@@ -236,7 +243,7 @@ class Worlds extends Emitter<WorldEventSignals> {
 		// Save all the worlds.
 		for await (const world of this.entries.values()) {
 			// Save the world.
-			await world.provider.save(true);
+			await world.provider.onShutdown();
 
 			// Delete the world from the worlds map.
 			this.entries.delete(world.identifier);

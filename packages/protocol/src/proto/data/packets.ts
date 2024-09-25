@@ -113,6 +113,10 @@ import { HurtArmorPacket } from "./hurt-armor";
 import { ShowCreditsPacket } from "./show-credits";
 import { UpdateClientInputLocksPacket } from "./update-client-input-locks";
 import { OnScreenTextureAnimationPacket } from "./on-screen-texture-animation";
+import { ServerboundDiagnosticsPacket } from "./serverbound-diagnostics";
+import { PlaySoundPacket } from "./play-sound";
+import { SetActorLinkPacket } from "./set-actor-link";
+import { StopSoundPacket } from "./stop-sound";
 
 const Packets = {
 	[Packet.Login]: LoginPacket, // 1
@@ -150,6 +154,7 @@ const Packets = {
 	[Packet.HurtArmor]: HurtArmorPacket, // 38
 	[Packet.SetActorData]: SetActorDataPacket, // 39
 	[Packet.SetActorMotion]: SetActorMotionPacket, // 40
+	[Packet.SetActorLink]: SetActorLinkPacket, // 41
 	[Packet.Animate]: AnimatePacket, // 44
 	[Packet.Respawn]: RespawnPacket, // 45
 	[Packet.ContainerOpen]: ContainerOpenPacket, // 46
@@ -176,6 +181,8 @@ const Packets = {
 	[Packet.ResourcePackChunkData]: ResourcePackChunkDataPacket, // 83
 	[Packet.ResourcePackChunkRequest]: ResourcePackChunkRequestPacket, // 84
 	[Packet.Transfer]: TransferPacket, // 85
+	[Packet.PlaySound]: PlaySoundPacket, // 86
+	[Packet.StopSound]: StopSoundPacket, // 87
 	[Packet.SetTitle]: SetTitlePacket, // 88
 	[Packet.StructureBlockUpdate]: StructureBlockUpdatePacket, // 90
 	[Packet.PlayerSkin]: PlayerSkinPacket, // 93
@@ -225,7 +232,8 @@ const Packets = {
 	[Packet.SetHud]: SetHudPacket, // 308
 	[Packet.AwardAchievement]: AwardAchievementPacket, // 309
 	[Packet.ClientboundCloseForm]: ClientboundCloseFormPacket, // 310
-	[Packet.ServerboundLoadingScreenPacket]: ServerboundLoadingScreenPacketPacket // 312
+	[Packet.ServerboundLoadingScreenPacket]: ServerboundLoadingScreenPacketPacket, // 312
+	[Packet.ServerboundDiagnosticPacket]: ServerboundDiagnosticsPacket // 315
 };
 
 export { Packets };

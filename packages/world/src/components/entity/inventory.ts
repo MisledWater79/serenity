@@ -26,6 +26,7 @@ class EntityInventoryComponent extends EntityComponent {
 
 	public constructor(entity: Entity) {
 		super(entity, EntityInventoryComponent.identifier);
+
 		this.container = new EntityContainer(
 			entity,
 			this.containerType,
@@ -81,7 +82,7 @@ class EntityInventoryComponent extends EntityComponent {
 			const slot = itemTag.getTag("Slot")?.value as number;
 
 			// Deserialize the item stack.
-			const itemStack = ItemStack.deserialize(itemTag);
+			const itemStack = ItemStack.deserialize(entity.dimension, itemTag);
 
 			// Add the item stack to the container.
 			component.container.setItem(slot, itemStack);

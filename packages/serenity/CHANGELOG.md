@@ -1,5 +1,47 @@
 # @serenityjs/serenity
 
+## 0.5.2
+
+### Patch Changes
+
+- 03a55ba: init v0.5.2-beta
+- Updated dependencies [03a55ba]
+  - @serenityjs/block@0.5.2
+  - @serenityjs/command@0.5.2
+  - @serenityjs/data@0.5.2
+  - @serenityjs/emitter@0.5.2
+  - @serenityjs/entity@0.5.2
+  - @serenityjs/item@0.5.2
+  - @serenityjs/logger@0.5.2
+  - @serenityjs/nbt@0.5.2
+  - @serenityjs/network@0.5.2
+  - @serenityjs/plugins@0.5.2
+  - @serenityjs/protocol@0.5.2
+  - @serenityjs/raknet@0.5.2
+  - @serenityjs/server-ui@0.5.2
+  - @serenityjs/world@0.5.2
+
+## 0.5.1
+
+### Patch Changes
+
+- 2880acc: init v0.5.1-beta
+- Updated dependencies [2880acc]
+  - @serenityjs/block@0.5.1
+  - @serenityjs/command@0.5.1
+  - @serenityjs/data@0.5.1
+  - @serenityjs/emitter@0.5.1
+  - @serenityjs/entity@0.5.1
+  - @serenityjs/item@0.5.1
+  - @serenityjs/logger@0.5.1
+  - @serenityjs/nbt@0.5.1
+  - @serenityjs/network@0.5.1
+  - @serenityjs/plugins@0.5.1
+  - @serenityjs/protocol@0.5.1
+  - @serenityjs/raknet@0.5.1
+  - @serenityjs/server-ui@0.5.1
+  - @serenityjs/world@0.5.1
+
 ## 0.5.0
 
 ### Minor Changes

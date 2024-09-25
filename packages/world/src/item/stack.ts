@@ -1,4 +1,4 @@
-import { ItemType, type Items } from "@serenityjs/item";
+import { type ItemToolType, ItemType, type Items } from "@serenityjs/item";
 import {
 	ByteTag,
 	CompoundTag,
@@ -8,14 +8,19 @@ import {
 	Tag
 } from "@serenityjs/nbt";
 
-import { ItemComponent, ItemTagComponent } from "../components";
+import { type ItemComponent, ItemTagComponent } from "../components";
 
+import type { Container } from "../container";
+import type { Dimension, World } from "../world";
 import type {
 	NetworkItemInstanceDescriptor,
 	NetworkItemStackDescriptor
 } from "@serenityjs/protocol";
 import type { ItemComponents } from "../types";
-import type { Container } from "../container";
+
+// TODO
+// READ ME!!!!
+// This class is in a desperate need of a refactor!!!!
 
 class ItemStack<T extends keyof Items = keyof Items> {
 	/**
@@ -49,6 +54,11 @@ class ItemStack<T extends keyof Items = keyof Items> {
 	public readonly maxAmount: number;
 
 	/**
+	 * The dimension the item is in.
+	 */
+	public dimension: Dimension;
+
+	/**
 	 * The container of the item stack.
 	 */
 	public container: Container | null = null;
@@ -63,36 +73,59 @@ class ItemStack<T extends keyof Items = keyof Items> {
 	 * @param identifier The identifier of the item.
 	 * @param amount The amount of the item.
 	 * @param metadata The metadata of the item.
+	 * @param dimension The dimension the item is in.
 	 */
-	public constructor(identifier: T, amount: number, metadata?: number) {
+	public constructor(
+		identifier: T,
+		amount: number,
+		metadata: number,
+		dimension: Dimension
+	) {
 		this.type = ItemType.get(identifier) as ItemType<T>;
-		this.metadata = metadata ?? 0;
+		this.amount = amount;
+		this.metadata = metadata;
+		this.dimension = dimension;
 		this.stackable = this.type.stackable;
 		this.maxAmount = this.type.maxAmount;
-		this.amount = amount;
 
-		// Register the type components to the item.
-		for (const component of ItemComponent.registry.get(identifier) ?? [])
+		// Get the components of the entity from the entity palette
+		const components = this.getWorld().items.getRegistry(identifier);
+
+		// Register the type components to the entity.
+		for (const component of components) {
+			// Skip if the entity already has the component
+			if (this.components.has(component.identifier)) continue;
+
+			// Create a new instance of the component
 			new component(this, component.identifier);
+		}
 
 		// Register the tag components to the item.
 		for (const tag of this.type.tags) {
 			// Get the component from the registry
-			const component = [...ItemComponent.components.values()].find((x) => {
-				// If the identifier is undefined, we will skip it.
-				if (!x.identifier || !(x.prototype instanceof ItemTagComponent))
-					return false;
+			const component = this.getWorld()
+				.items.getAllComponents()
+				.find((x) => {
+					// If the identifier is undefined, we will skip it.
+					if (!x.identifier || !(x.prototype instanceof ItemTagComponent))
+						return false;
 
-				// Initialize the component as a BlockStateComponent.
-				const component = x as typeof ItemTagComponent;
+					// Initialize the component as a BlockStateComponent.
+					const component = x as typeof ItemTagComponent;
 
-				// Check if the identifier includes the key.
-				// As some states dont include a namespace.
-				return component.tag === tag;
-			});
+					// Check if the identifier includes the key.
+					// As some states dont include a namespace.
+					return component.tag === tag;
+				});
 
 			// Check if the component exists.
-			if (component) new component(this, component.identifier);
+			if (!component) continue;
+
+			// Check if the item already has the component.
+			if (this.components.has(component.identifier)) continue;
+
+			// Create the component.
+			new component(this, component.identifier);
 		}
 	}
 
@@ -106,6 +139,14 @@ class ItemStack<T extends keyof Items = keyof Items> {
 
 		// Update the item in the container.
 		this.update();
+	}
+
+	/**
+	 * Get the world the item is in.
+	 * @returns The world the item is in.
+	 */
+	public getWorld(): World {
+		return this.dimension.world;
 	}
 
 	/**
@@ -248,6 +289,14 @@ class ItemStack<T extends keyof Items = keyof Items> {
 	}
 
 	/**
+	 * Gets the tool type of the item.
+	 * @returns The tool type of the item.
+	 */
+	public getToolType(): ItemToolType {
+		return this.type.tool;
+	}
+
+	/**
 	 * Converts the item stack to a network item instance descriptor.
 	 * Which is used on the protocol level.
 	 * @param item The item stack to convert.
@@ -276,10 +325,12 @@ class ItemStack<T extends keyof Items = keyof Items> {
 	/**
 	 * Converts a network item instance descriptor to an item stack.
 	 * @param descriptor The network item instance descriptor.
+	 * @param dimension The dimension the item is in.
 	 * @returns The item stack.
 	 */
 	public static fromNetworkInstance(
-		descriptor: NetworkItemInstanceDescriptor
+		descriptor: NetworkItemInstanceDescriptor,
+		dimension: Dimension
 	): ItemStack | null {
 		// Get the item type from the network.
 		const type = ItemType.getByNetwork(descriptor.network);
@@ -291,7 +342,8 @@ class ItemStack<T extends keyof Items = keyof Items> {
 		const item = new ItemStack(
 			type.identifier,
 			descriptor.stackSize ?? 1,
-			descriptor.metadata ?? 1
+			descriptor.metadata ?? 1,
+			dimension
 		);
 
 		// Return the item stack.
@@ -320,14 +372,16 @@ class ItemStack<T extends keyof Items = keyof Items> {
 	 * @param type The type of the item.
 	 * @param amount The amount of the item.
 	 * @param metadata The metadata of the item.
+	 * @param dimension The dimension the item is in.
 	 * @returns The item stack.
 	 */
 	public static create<T extends keyof Items>(
 		type: ItemType<T>,
 		amount: number,
-		metadata?: number
+		metadata: number,
+		dimension: Dimension
 	): ItemStack<T> {
-		return new ItemStack(type.identifier, amount, metadata);
+		return new ItemStack(type.identifier, amount, metadata, dimension);
 	}
 
 	/**
@@ -359,7 +413,9 @@ class ItemStack<T extends keyof Items = keyof Items> {
 		// Iterate over the components and serialize them.
 		for (const component of itemStack.getComponents()) {
 			// Get the component type.
-			const type = ItemComponent.components.get(component.identifier);
+			const type = itemStack
+				.getWorld()
+				.items.getComponent(component.identifier);
 			if (!type) continue;
 
 			// Create a data compound tag for the data to be written to.
@@ -388,10 +444,11 @@ class ItemStack<T extends keyof Items = keyof Items> {
 	 * and constructs an ItemStack object from it.
 	 *
 	 * @param tag The CompoundTag containing the serialized item stack data.
+	 * @param dimension The dimension the item is in.
 	 * @returns The deserialized Itemstack
 	 * @throws Will throw an error if the tag does not contain a valid item identifier.
 	 */
-	public static deserialize(tag: CompoundTag): ItemStack {
+	public static deserialize(dimension: Dimension, tag: CompoundTag): ItemStack {
 		// Create the item stack.
 		const itemIdentifier = tag.getTag<StringTag>("Name");
 
@@ -399,10 +456,11 @@ class ItemStack<T extends keyof Items = keyof Items> {
 		if (!itemIdentifier) throw new Error(`Invalid item tag`);
 
 		// Creat the item stack.
-		const item = new ItemStack(
+		const itemStack = new ItemStack(
 			itemIdentifier.value as keyof Items,
 			tag.getTag<ByteTag>("Count")?.value ?? 1,
-			tag.getTag<ShortTag>("Damage")?.value ?? 0
+			tag.getTag<ShortTag>("Damage")?.value ?? 0,
+			dimension
 		);
 
 		// Deserialize the components.
@@ -417,15 +475,15 @@ class ItemStack<T extends keyof Items = keyof Items> {
 			if (!data) continue;
 
 			// Get the component type.
-			const type = ItemComponent.components.get(identifier);
+			const type = dimension.world.items.getComponent(identifier);
 			if (!type) continue;
 
 			// Deserialize the component.
-			type.deserialize(data, item);
+			type.deserialize(data, itemStack);
 		}
 
 		// Return the item stack.
-		return item;
+		return itemStack;
 	}
 }
 
