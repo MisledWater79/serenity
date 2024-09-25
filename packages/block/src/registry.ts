@@ -1,4 +1,9 @@
-import { BLOCK_TYPES, BLOCK_PERMUTATIONS, BLOCK_DROPS } from "@serenityjs/data";
+import {
+	BLOCK_TYPES,
+	BLOCK_PERMUTATIONS,
+	BLOCK_DROPS,
+	BLOCK_METADATA
+} from "@serenityjs/data";
 
 import { BlockType } from "./type";
 import { BlockPermutation } from "./permutation";
@@ -13,10 +18,13 @@ for (const type of BLOCK_TYPES) {
 		throw new Error(`Block type ${type.identifier} is already registered`);
 	}
 
-	/**
-	 * The default drops of the block type.
-	 */
-	const block = BLOCK_DROPS.find((drop) => drop.identifier === type.identifier);
+	// Find the block drops for the block type.
+	const drop = BLOCK_DROPS.find((drop) => drop.identifier === type.identifier);
+
+	// Find the metadata for the block type.
+	const metadata = BLOCK_METADATA.find(
+		(meta) => meta.identifier === type.identifier
+	) ?? { hardness: 0, friction: 0, mapColor: "" };
 
 	// Register the block type.
 	const instance = new BlockType(
@@ -25,19 +33,28 @@ for (const type of BLOCK_TYPES) {
 		type.air,
 		type.liquid,
 		type.solid,
+		metadata.hardness,
+		metadata.friction,
+		metadata.mapColor,
 		type.components,
 		type.tags
 	);
 
-	if (block) {
-		for (const drop of block?.drops ?? []) {
-			const itemDrop = new ItemDrop(drop.identifier, drop.min, drop.max);
+	// Check if the block type has drops.
+	if (drop) {
+		for (const entry of drop?.drops ?? []) {
+			// Separate the drop information.
+			const { identifier, min, max, chance } = entry;
 
+			// Create a new item drop.
+			const itemDrop = new ItemDrop(identifier, min, max, chance);
+
+			// Register the item drop to the block type.
 			instance.drops.push(itemDrop);
 		}
-	} else {
-		instance.drops.push(new ItemDrop(type.identifier, 1, 1));
 	}
+	// Register the default drop for the block type.
+	else instance.drops.push(new ItemDrop(type.identifier, 1, 1, 1));
 
 	// Set the block type in the registry.
 	BlockType.types.set(type.identifier as BlockIdentifier, instance);

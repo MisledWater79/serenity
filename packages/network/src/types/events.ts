@@ -110,7 +110,11 @@ import type {
 	HurtArmorPacket,
 	ShowCreditsPacket,
 	UpdateClientInputLocksPacket,
-	OnScreenTextureAnimationPacket
+	OnScreenTextureAnimationPacket,
+	ServerboundDiagnosticsPacket,
+	PlaySoundPacket,
+	SetActorLinkPacket,
+	StopSoundPacket
 } from "@serenityjs/protocol";
 import type { NetworkPacketEvent } from "./packet-event";
 
@@ -151,6 +155,7 @@ interface NetworkEvents {
 	[Packet.InventoryTransaction]: [
 		NetworkPacketEvent<InventoryTransactionPacket>
 	];
+	[Packet.SetActorLink]: [NetworkPacketEvent<SetActorLinkPacket>];
 	[Packet.CompletedUsingItem]: [NetworkPacketEvent<CompletedUsingItemPacket>];
 	[Packet.MobEquipment]: [NetworkPacketEvent<MobEquipmentPacket>];
 	[Packet.MobArmorEquipment]: [NetworkPacketEvent<MobArmorEquipmentPacket>];
@@ -203,8 +208,8 @@ interface NetworkEvents {
 	[Packet.ResourcePackChunkRequest]: [
 		NetworkPacketEvent<ResourcePackChunkRequestPacket>
 	];
-	[Packet.SpawnParticleEffect]: [NetworkPacketEvent<SpawnParticleEffectPacket>];
 	[Packet.Transfer]: [NetworkPacketEvent<TransferPacket>];
+	[Packet.PlaySound]: [NetworkPacketEvent<PlaySoundPacket>];
 	[Packet.SetTitle]: [NetworkPacketEvent<SetTitlePacket>];
 	[Packet.PlayerSkin]: [NetworkPacketEvent<PlayerSkinPacket>];
 	[Packet.NpcRequest]: [NetworkPacketEvent<NpcRequestPacket>];
@@ -222,6 +227,7 @@ interface NetworkEvents {
 	[Packet.AvailableActorIdentifiers]: [
 		NetworkPacketEvent<AvailableActorIdentifiersPacket>
 	];
+	[Packet.SpawnParticleEffect]: [NetworkPacketEvent<SpawnParticleEffectPacket>];
 	[Packet.SetLocalPlayerAsInitialized]: [
 		NetworkPacketEvent<SetLocalPlayerAsInitializedPacket>
 	];
@@ -233,6 +239,7 @@ interface NetworkEvents {
 	[Packet.OnScreenTextureAnimation]: [
 		NetworkPacketEvent<OnScreenTextureAnimationPacket>
 	];
+	[Packet.StopSound]: [NetworkPacketEvent<StopSoundPacket>];
 	[Packet.Emote]: [NetworkPacketEvent<EmotePacket>];
 	[Packet.NetworkSettings]: [NetworkPacketEvent<NetworkSettingsPacket>];
 	[Packet.PlayerAuthInput]: [NetworkPacketEvent<PlayerAuthInputPacket>];
@@ -272,6 +279,9 @@ interface NetworkEvents {
 	];
 	[Packet.UpdateClientInputLocks]: [
 		NetworkPacketEvent<UpdateClientInputLocksPacket>
+	];
+	[Packet.ServerboundDiagnosticPacket]: [
+		NetworkPacketEvent<ServerboundDiagnosticsPacket>
 	];
 }
 

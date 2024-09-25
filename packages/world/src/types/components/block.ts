@@ -8,10 +8,17 @@ import type {
 	BlockCollisionComponent,
 	BlockSignComponent,
 	BlockLootComponent,
-	BlockSupportedComponent
+	BlockSupportedComponent,
+	BlockTillableComponent,
+	BlockGrowthComponent,
+	BlockGravityComponent
 } from "../../components";
 
-interface BlockComponents {
+interface BlockSateCompnents {
+	"minecraft:growth": BlockGrowthComponent;
+}
+
+interface BlockComponents extends BlockSateCompnents {
 	"minecraft:inventory": BlockInventoryComponent;
 	"minecraft:nametag": BlockNametagComponent;
 	"minecraft:cardinal_direction": BlockCardinalDirectionComponent;
@@ -22,6 +29,8 @@ interface BlockComponents {
 	"minecraft:sign": BlockSignComponent;
 	"minecraft:loot_table": BlockLootComponent;
 	"minecraft:supported": BlockSupportedComponent;
+	"minecraft:tillable": BlockTillableComponent;
+	"minecraft:gravity": BlockGravityComponent;
 }
 
 export { BlockComponents };

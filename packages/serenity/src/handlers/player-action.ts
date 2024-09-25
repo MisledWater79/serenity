@@ -13,14 +13,13 @@ import {
 	Vector3f
 } from "@serenityjs/protocol";
 import {
-	ItemStack,
 	ItemUseCause,
 	PlayerJumpSignal,
 	PlayerStartSwimmingSignal,
 	PlayerStopSwimmingSignal,
+	PlayerStartBreakBlockSignal,
 	type Player
 } from "@serenityjs/world";
-import { type ItemIdentifier, ItemType } from "@serenityjs/item";
 
 import { SerenityHandler } from "./serenity-handler";
 
@@ -197,11 +196,23 @@ class PlayerAction extends SerenityHandler {
 		// Get the block position from the packet.
 		const { x, y, z } = packet.blockPosition;
 
+		// Get the block from the dimension.
+		const block = player.dimension.getBlock(packet.blockPosition);
+
+		// Create a new PlayerStartBreakBlockSignal and emit it.
+		const signal = new PlayerStartBreakBlockSignal(block, player);
+
+		// Emit the signal.
+		const value = signal.emit();
+
+		// If the signal was cancelled, we will return.
+		if (!value) return;
+
 		// Set the mining position to the player.
 		player.target = packet.blockPosition;
 
 		// Calculate the break time.
-		const breakTime = Math.ceil(2 * 20);
+		const breakTime = block.getBreakTime();
 
 		// Create a new LevelEvent packet.
 		const event = new LevelEventPacket();
@@ -213,11 +224,14 @@ class PlayerAction extends SerenityHandler {
 		player.dimension.broadcast(event);
 
 		// Trigger the onStartBreak method of the block components.
-		const block = player.dimension.getBlock(packet.blockPosition);
 		for (const component of block.components.values()) {
 			// Trigger the onStartBreak method of the block component.
 			component.onStartBreak?.(player);
 		}
+
+		// Check if the player has the instant build ability.
+		if (player.getAbility(AbilityIndex.InstantBuild) === true)
+			block.destroy({ player });
 
 		// Trigger the onStartUse method of the item components.
 		const inventory = player.getComponent("minecraft:inventory");
@@ -229,8 +243,11 @@ class PlayerAction extends SerenityHandler {
 
 		// Trigger the onStartUse method of the item components.
 		for (const component of usingItem.components.values()) {
+			// Get the item use cause.
+			const cause = ItemUseCause.Break;
+
 			// Trigger the onStartUse method of the item component.
-			component.onStartUse?.(player, ItemUseCause.Break);
+			component.onStartUse?.({ player, cause });
 		}
 	}
 
@@ -269,8 +286,11 @@ class PlayerAction extends SerenityHandler {
 
 		// Trigger the onStartUse method of the item components.
 		for (const component of usingItem.components.values()) {
+			// Get the item use cause.
+			const cause = ItemUseCause.Break;
+
 			// Trigger the onStartUse method of the item component.
-			component.onStopUse?.(player, ItemUseCause.Break);
+			component.onStopUse?.({ player, cause });
 		}
 	}
 
@@ -310,18 +330,30 @@ class PlayerAction extends SerenityHandler {
 		player.dimension.broadcast(event);
 
 		// Destroy the block.
-		block.destroy(player);
+		block.destroy({ player });
 	}
 
 	private static handlePredictBreak(
 		packet: PlayerActionPacket,
 		player: Player
 	): void {
-		// Get the block position from the packet.
-		const { x, y, z } = packet.blockPosition;
+		// Get the gamemode of the player.
+		const gamemode = player.getGamemode();
 
 		// Get the block from the dimension.
 		const block = player.dimension.getBlock(packet.blockPosition);
+
+		// Check if the player has a target.
+		if (!player.target && gamemode !== Gamemode.Creative)
+			return void block.setPermutation(block.permutation);
+
+		// Check if the target matches the block position.
+		if (
+			player.target &&
+			!player.target.equals(packet.blockPosition) &&
+			gamemode !== Gamemode.Creative
+		)
+			return void block.setPermutation(block.permutation);
 
 		// If the player is in adventure mode, we will set the block permutation.
 		// The player should not be able to break the block.
@@ -335,21 +367,8 @@ class PlayerAction extends SerenityHandler {
 			return;
 		}
 
-		// Emit the block break particles to the dimension.
-		// Create a new LevelEvent packet.
-		const event = new LevelEventPacket();
-		event.event = LevelEvent.ParticlesDestroyBlock;
-		event.position = new Vector3f(x, y, z);
-		event.data = block.permutation.network;
-
-		// Broadcast the event to the dimension.
-		player.dimension.broadcast(event);
-
-		// Get the permtuation of the block.
-		const permutation = block.permutation;
-
 		// Destroy the block.
-		const destroyed = block.destroy(player);
+		const destroyed = block.destroy({ player });
 
 		// If the block was not destroyed, we will return.
 		if (!destroyed) return;
@@ -361,35 +380,19 @@ class PlayerAction extends SerenityHandler {
 		// Exhaust the player
 		player.exhaust(0.005);
 
-		// Iterate over the block drops.
-		for (const drop of permutation.type.drops) {
-			// Roll the drop amount.
-			const amount = drop.roll();
-
-			// Create a new ItemStack.
-			const itemType = ItemType.get(drop.type as ItemIdentifier) as ItemType;
-			const itemStack = ItemStack.create(itemType, amount);
-			const itemEntity = player.dimension.spawnItem(
-				itemStack,
-				new Vector3f(x + 0.5, y + 0.5, z + 0.5)
-			);
-
-			// Add random x & z velocity to the item entity.
-			const velocity = new Vector3f(
-				Math.random() * 0.1 - 0.05,
-				itemEntity.velocity.y,
-				Math.random() * 0.1 - 0.05
-			);
-			itemEntity.addMotion(velocity);
-		}
-
 		// Trigger the onUse method of the item components.
 		const usingItem = player.usingItem;
 		if (!usingItem) return;
 		for (const component of usingItem.components.values()) {
+			// Get the item use cause.
+			const cause = ItemUseCause.Break;
+
 			// Trigger the onUse method of the item component.
-			component.onUse?.(player, ItemUseCause.Break);
+			component.onUse?.({ player, cause });
 		}
+
+		// Set the target to null.
+		player.target = null;
 	}
 
 	private static handleContinueBreak(
@@ -418,8 +421,10 @@ class PlayerAction extends SerenityHandler {
 		// Set the mining position to the player.
 		player.target = packet.blockPosition;
 
+		const block = player.dimension.getBlock(packet.blockPosition);
+
 		// TODO: Calculate the break time based on hardness
-		const breakTime = Math.ceil(2 * 20);
+		const breakTime = block.getBreakTime();
 
 		// Create a new LevelEvent packet.
 		const event = new LevelEventPacket();
@@ -433,6 +438,10 @@ class PlayerAction extends SerenityHandler {
 
 		// Broadcast the event to the dimension.
 		player.dimension.broadcast(event);
+
+		// Check if the player has the instant build ability.
+		if (player.getAbility(AbilityIndex.InstantBuild) === true)
+			block.destroy({ player });
 	}
 
 	private static handleStartItemUseOn(
@@ -449,8 +458,11 @@ class PlayerAction extends SerenityHandler {
 		// Trigger the onStartUse method of the item components.
 		if (!item) return;
 		for (const component of item.components.values()) {
+			// Get the item use cause.
+			const cause = ItemUseCause.Place;
+
 			// Trigger the onStartUse method of the item component.
-			component.onStartUse?.(player, ItemUseCause.Place);
+			component.onStartUse?.({ player, cause });
 		}
 	}
 
@@ -461,8 +473,11 @@ class PlayerAction extends SerenityHandler {
 		// Trigger the onStopUse method of the item components.
 		if (!player.usingItem) return;
 		for (const component of player.usingItem.components.values()) {
+			// Get the item use cause.
+			const cause = ItemUseCause.Place;
+
 			// Trigger the onStopUse method of the item component.
-			component.onStopUse?.(player, ItemUseCause.Place);
+			component.onStopUse?.({ player, cause });
 		}
 
 		// Update the player's usingItem property.

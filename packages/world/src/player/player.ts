@@ -3,7 +3,7 @@ import {
 	AbilityLayerType,
 	ActorEventIds,
 	ActorEventPacket,
-	type BlockCoordinates,
+	BlockPosition,
 	ChangeDimensionPacket,
 	ContainerName,
 	Gamemode,
@@ -27,17 +27,22 @@ import {
 	AbilitySet,
 	type EffectType,
 	OnScreenTextureAnimationPacket,
-	ToastRequestPacket
+	ToastRequestPacket,
+	PlaySoundPacket,
+	StopSoundPacket
 } from "@serenityjs/protocol";
 import { EntityIdentifier } from "@serenityjs/entity";
 
 import { Entity } from "../entity";
-import { PlayerComponent, EntityComponent } from "../components";
+import { PlayerComponent } from "../components";
 import { EntitySpawnedSignal, PlayerMissSwingSignal } from "../events";
+import { ItemUseCause } from "../enums";
 
 import { PlayerStatus } from "./status";
 import { Device } from "./device";
+import { PlayerDiagnostic } from "./diagnostics";
 
+import type { PlayerSoundOptions } from "../options";
 import type { ItemStack } from "../item";
 import type { PlayerOptions } from "./options";
 import type { Container } from "../container";
@@ -85,6 +90,12 @@ class Player extends Entity {
 	public readonly device: Device;
 
 	/**
+	 * The player's diagnostics. This is used to track the player's network latency, and other diagnostic information.
+	 * This is only available when the client has `Enable Client Diagnostics` enabled in the creator settings.
+	 */
+	public readonly diagnostics = new PlayerDiagnostic();
+
+	/**
 	 * The current status of the player's connection.
 	 */
 	public status: PlayerStatus = PlayerStatus.Connecting;
@@ -107,12 +118,12 @@ class Player extends Entity {
 	/**
 	 * The target block the player is currently mining.
 	 */
-	public target: BlockCoordinates | null = null;
+	public target: BlockPosition | null = null;
 
 	/**
 	 * The player spawn position
 	 */
-	public spawnPosition: BlockCoordinates = this.dimension.spawn;
+	public spawnPosition: BlockPosition = this.dimension.spawn;
 
 	/**
 	 * @readonly
@@ -150,6 +161,11 @@ class Player extends Entity {
 	 */
 	public isFlying = false;
 
+	/**
+	 * The player's fly speed.
+	 */
+	public flySpeed = 0.05;
+
 	public constructor(dimension: Dimension, options: PlayerOptions) {
 		super(EntityIdentifier.Player, dimension);
 		this.session = options.session;
@@ -160,17 +176,28 @@ class Player extends Entity {
 		this.skin = SerializedSkin.from(options.tokens.clientData);
 		this.device = new Device(options.tokens.clientData);
 
-		// Register the type components to the entity.
-		for (const component of EntityComponent.registry.get(
+		// Get the components of the entity from the entity palette
+		const components = this.dimension.world.entities.getRegistryFor(
 			this.type.identifier
-		) ?? [])
-			new component(this, component.identifier);
+		);
 
-		// Register the type components to the player.
-		for (const component of PlayerComponent.registry.get(
-			this.type.identifier
-		) ?? [])
-			new component(this, component.identifier);
+		// Register the type components to the entity.
+		for (const component of components) {
+			// Skip if the player already has the component
+			if (this.components.has(component.identifier)) continue;
+
+			// Try to create the component
+			try {
+				// Create a new instance of the component
+				new component(this, component.identifier);
+			} catch (reason) {
+				// Log the error
+				this.dimension.world.logger.error(
+					`Failed to create component "${component.identifier}" for player "${this.username}".`,
+					reason
+				);
+			}
+		}
 	}
 
 	/**
@@ -286,6 +313,9 @@ class Player extends Entity {
 
 		// Trigger the onSpawn method of all applicable components
 		for (const component of this.getComponents()) component.onSpawn?.();
+
+		// Set the player's alive state
+		this.isAlive = true;
 
 		// Sync the players data
 		return this.sync();
@@ -476,6 +506,7 @@ class Player extends Entity {
 				packet.dimension = dimension.type;
 				packet.position = position;
 				packet.respawn = true;
+				packet.hasLoadingScreen = false;
 
 				// Send the packet to the player
 				this.session.sendImmediate(packet);
@@ -490,7 +521,7 @@ class Player extends Entity {
 				const component = this.getComponent("minecraft:chunk_rendering");
 
 				// Clear the chunks
-				component.chunks.clear();
+				component.clear();
 			}
 
 			// Spawn the player in the new dimension
@@ -509,7 +540,7 @@ class Player extends Entity {
 			packet.yaw = this.rotation.yaw;
 			packet.headYaw = this.rotation.headYaw;
 			packet.mode = MoveMode.Teleport;
-			packet.onGround = false; // TODO: Added ground check
+			packet.onGround = this.onGround;
 			packet.riddenRuntimeId = 0n;
 			packet.cause = new TeleportCause(4, 0);
 			packet.tick = this.dimension.world.currentTick;
@@ -523,14 +554,16 @@ class Player extends Entity {
 	 * Transfers the player to a different server.
 	 * @param address The address to transfer the player to.
 	 * @param port The port to transfer the player to.
+	 * @param reload If the world should be reloaded.
 	 */
-	public transfer(address: string, port: number): void {
+	public transfer(address: string, port: number, reload = false): void {
 		// Create a new TransferPacket
 		const packet = new TransferPacket();
 
 		// Set the packet properties
 		packet.address = address;
 		packet.port = port;
+		packet.reloadWorld = reload;
 
 		// Send the packet to the player
 		this.session.send(packet);
@@ -720,11 +753,47 @@ class Player extends Entity {
 					([ability, value]) => new AbilitySet(ability, value)
 				),
 				walkSpeed: 0.1,
-				flySpeed: 0.05
+				flySpeed: this.flySpeed
 			}
 		];
 
 		// Send the packet to the player
+		this.dimension.broadcast(packet);
+	}
+
+	/**
+	 * Forces the player to use an item.
+	 * @param slot The slot of the item to use.
+	 */
+	public useItem(slot?: number): void {
+		// Get the player's inventory component
+		const inventory = this.getComponent("minecraft:inventory");
+
+		// Get the item stack from the player's inventory
+		const itemStack =
+			slot === undefined
+				? inventory.getHeldItem()
+				: inventory.container.getItem(slot);
+
+		// Check if the item stack is valid
+		if (itemStack === null) return;
+
+		// Trigger the onUse method of all applicable components for the item
+		for (const component of itemStack.getComponents()) {
+			// Get the item use cause
+			const cause = ItemUseCause.Use;
+
+			// Call the onUse method of the component
+			component.onUse?.({ player: this, cause });
+		}
+
+		// Create a new ActorEventPacket
+		const packet = new ActorEventPacket();
+		packet.actorRuntimeId = this.runtime;
+		packet.eventId = ActorEventIds.ARM_SWING;
+		packet.eventData = inventory.selectedSlot;
+
+		// Send the packet to the dimension
 		this.dimension.broadcast(packet);
 	}
 
@@ -767,6 +836,56 @@ class Player extends Entity {
 		// Create a new OnScreenTextureAnimationPacket
 		const packet = new OnScreenTextureAnimationPacket();
 		packet.effectId = effect;
+
+		// Send the packet to the player
+		this.session.send(packet);
+	}
+
+	/**
+	 * Stops sound that are playing to the player, if the sound name is not provided, all the sounds will be stopped
+	 * @param sound - The name of the sound to stop. If not provided, all sounds will be stopped.
+	 */
+	public stopSound(sound: string = ""): void {
+		// Create a new StopSoundPacket
+		const packet = new StopSoundPacket();
+
+		packet.soundName = sound;
+		packet.stopAllSounds = sound == "";
+		packet.stopMusic = false;
+
+		// Send the packet to the player
+		this.session.send(packet);
+	}
+
+	/**
+	 * Plays a sound to the player.
+	 * @param sound The sound to play.
+	 * @param options The options to play the sound with.
+	 */
+	public playSound(sound: string, options?: PlayerSoundOptions): void {
+		// Create a new PlaySoundPacket
+		const packet = new PlaySoundPacket();
+
+		// Convert the player's position to a BlockPosition
+		const position = BlockPosition.fromVector3f(this.position.floor());
+
+		// Check if the options are provided
+		if (options?.position) {
+			position.x = Math.floor(options.position.x);
+			position.y = Math.floor(options.position.y);
+			position.z = Math.floor(options.position.z);
+		}
+
+		// Mojank...
+		position.x *= 8;
+		position.y *= 8;
+		position.z *= 8;
+
+		// Set the packet properties
+		packet.name = sound;
+		packet.position = position;
+		packet.volume = options?.volume ?? 1;
+		packet.pitch = options?.pitch ?? 1;
 
 		// Send the packet to the player
 		this.session.send(packet);

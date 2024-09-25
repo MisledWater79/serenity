@@ -1,26 +1,13 @@
-import { type BlockIdentifier, BlockType } from "@serenityjs/block";
-
 import { Component } from "../component";
 
+import type { World } from "../../world";
+import type { BlockIdentifier } from "@serenityjs/block";
 import type { CompoundTag } from "@serenityjs/nbt";
 import type { Vector3f } from "@serenityjs/protocol";
 import type { Player } from "../../player";
 import type { Block } from "../../block";
 
 class BlockComponent extends Component {
-	/**
-	 * A collective registry of all block components registered to a block type.
-	 */
-	public static readonly registry = new Map<
-		BlockIdentifier,
-		Array<typeof BlockComponent>
-	>();
-
-	/**
-	 * A collective registry of all block components.
-	 */
-	public static readonly components = new Map<string, typeof BlockComponent>();
-
 	/**
 	 * The block type identifiers to bind the component to.
 	 */
@@ -45,21 +32,6 @@ class BlockComponent extends Component {
 		// Register the component to the block.
 		// @ts-ignore WHYYY
 		this.block.setComponent(this);
-	}
-
-	/**
-	 * Registers the block component to the block type.
-	 * @param type The block type to register the component to.
-	 */
-	public static register(type: BlockType): void {
-		// Get the components of the block type.
-		const components = BlockComponent.registry.get(type.identifier) ?? [];
-
-		// Push the component to the registry.
-		components.push(this);
-
-		// Set the components to the block type.
-		BlockComponent.registry.set(type.identifier, components);
 	}
 
 	/**
@@ -116,8 +88,9 @@ class BlockComponent extends Component {
 	 * Called when the block is broken in the dimension.
 	 * @note The `player` parameter is optional as the block can be broken by the server.
 	 * @param player The player that broke the block.
+	 * @returns Whether the block was successfully broken.
 	 */
-	public onBreak?(player?: Player): void;
+	public onBreak?(player?: Player): boolean;
 
 	/**
 	 * Called when the block is interacted with in the dimension.
@@ -125,18 +98,19 @@ class BlockComponent extends Component {
 	 */
 	public onInteract?(player: Player): void;
 
-	public static bind(): void {
-		// Bind the component to the block types.
-		for (const identifier of this.types) {
-			// Get the block type.
-			const type = BlockType.get(identifier);
+	/**
+	 * Called when a player picks the block.
+	 * @param player The player that picked the block.
+	 */
+	public onPick?(player: Player): void;
 
-			// Register the component to the block type.
-			if (type) this.register(type);
-		}
-
-		// Register the component.
-		BlockComponent.components.set(this.identifier, this);
+	/**
+	 * Registers the block component to the world.
+	 * @param world The world to register the block component to.
+	 * @returns Whether the block component was registered.
+	 */
+	public static register(world: World): boolean {
+		return world.blocks.registerComponent(this);
 	}
 
 	/**

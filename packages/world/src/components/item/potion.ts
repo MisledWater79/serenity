@@ -7,7 +7,7 @@ import { PlayerItemConsumeSignal } from "../../events";
 
 import { ItemComponent } from "./item-component";
 
-import type { Player } from "../../player";
+import type { ItemUseOptions } from "../../options";
 import type { Effect } from "../../effect/effect";
 
 class ItemPotionComponent<T extends keyof Items> extends ItemComponent<T> {
@@ -23,7 +23,9 @@ class ItemPotionComponent<T extends keyof Items> extends ItemComponent<T> {
 		this.potionEffect = effect;
 	}
 
-	public onUse(player: Player, cause: ItemUseCause): ItemUseMethod | undefined {
+	public onUse(options: ItemUseOptions): ItemUseMethod | undefined {
+		const { player, cause } = options;
+
 		if (cause != ItemUseCause.Use || !player.usingItem) return;
 		// ? Get the player inventory to transform the potion into a glass bottle
 		const { container, selectedSlot } = player.getComponent(
@@ -38,14 +40,15 @@ class ItemPotionComponent<T extends keyof Items> extends ItemComponent<T> {
 		player.addEffect(this.potionEffect);
 
 		// ? Convert the potion into a empty glass bottle
-		const convertedItemStack = new ItemStack(ItemIdentifier.GlassBottle, 1);
+		const convertedItemStack = new ItemStack(
+			ItemIdentifier.GlassBottle,
+			1,
+			0,
+			this.item.dimension
+		);
 		container.setItem(selectedSlot, convertedItemStack);
 		return ItemUseMethod.Consume;
 	}
-
-	public onStartUse(_player: Player, _cause: ItemUseCause): void {}
-
-	public onStopUse(_player: Player, _cause: ItemUseCause): void {}
 }
 
 export { ItemPotionComponent };

@@ -37,6 +37,7 @@ enum Packet {
 	HurtArmor = 0x26, // 38
 	SetActorData = 0x27, // 39
 	SetActorMotion = 0x28, // 40
+	SetActorLink = 0x29, // 41
 	// SetSpawnPosition = 0x2b, // 43
 	Animate = 0x2c, // 44
 	Respawn = 0x2d, // 45
@@ -65,6 +66,8 @@ enum Packet {
 	ResourcePackChunkData = 0x53, // 83
 	ResourcePackChunkRequest = 0x54, // 84
 	Transfer = 0x55, // 85
+	PlaySound = 0x56, // 86
+	StopSound = 0x57, // 87
 	SetTitle = 0x58, // 88
 	StructureBlockUpdate = 0x5a, // 90
 	PlayerSkin = 0x5d, // 93
@@ -116,7 +119,8 @@ enum Packet {
 	SetHud = 0x1_34, // 308
 	AwardAchievement = 0x1_35, // 309
 	ClientboundCloseForm = 0x1_36, // 310
-	ServerboundLoadingScreenPacket = 0x1_38 // 312
+	ServerboundLoadingScreenPacket = 0x1_38, // 312
+	ServerboundDiagnosticPacket = 0x1_3b // 315
 }
 
 export { Packet };

@@ -2,6 +2,7 @@ import {
 	type ContainerId,
 	ContainerOpenPacket,
 	type ContainerType,
+	FullContainerName,
 	InventoryContentPacket,
 	InventorySlotPacket,
 	NetworkItemStackDescriptor
@@ -64,8 +65,9 @@ class EntityContainer extends Container {
 		// Calculate the amount of empty slots in the container.
 		this.calculateEmptySlotCount();
 
-		// Set the items container instance.
+		// Set the items container instance & dimension
 		item.container = this;
+		item.dimension = this.entity.dimension;
 
 		// Check if the entity is a player, if so, return.
 		if (!this.entity.isPlayer()) return;
@@ -75,9 +77,10 @@ class EntityContainer extends Container {
 
 		// Set properties of the packet.
 		packet.containerId = this.identifier;
-		packet.dynamicContainerId = 0; // TODO: Implement dynamic containers.
 		packet.slot = slot;
 		packet.item = ItemStack.toNetworkStack(item);
+		packet.fullContainerName = new FullContainerName(0, 0);
+		packet.dynamicContainerSize = this.size;
 
 		// Send the packet to the player.
 		this.entity.session.send(packet);
@@ -131,7 +134,8 @@ class EntityContainer extends Container {
 				const newItem = new ItemStack(
 					item.type.identifier,
 					item.maxAmount,
-					item.metadata
+					item.metadata,
+					this.entity.dimension
 				);
 
 				// Add the new Item and decrease it
@@ -191,7 +195,12 @@ class EntityContainer extends Container {
 		}
 
 		// Create a new item with the removed amount.
-		const newItem = ItemStack.create(item.type, removed, item.metadata);
+		const newItem = ItemStack.create(
+			item.type,
+			removed,
+			item.metadata,
+			this.entity.dimension
+		);
 
 		// Clone the components of the item.
 		for (const component of item.components.values()) {
@@ -253,9 +262,10 @@ class EntityContainer extends Container {
 
 		// Set properties of the packet.
 		packet.containerId = this.identifier;
-		packet.dynamicContainerId = 0; // TODO: Implement dynamic containers.
 		packet.slot = slot;
 		packet.item = new NetworkItemStackDescriptor(0);
+		packet.fullContainerName = new FullContainerName(0, 0);
+		packet.dynamicContainerSize = this.size;
 
 		// Send the packet to the player.
 		this.entity.session.send(packet);
@@ -280,7 +290,8 @@ class EntityContainer extends Container {
 
 		// Set the properties of the packet.
 		packet.containerId = this.identifier;
-		packet.dynamicContainerId = 0; // TODO: Implement dynamic containers.
+		packet.fullContainerName = new FullContainerName(0, 0);
+		packet.dynamicContainerSize = this.size;
 
 		// Map the items in the storage to network item stack descriptors.
 		packet.items = this.storage.map((item) => {

@@ -1,5 +1,5 @@
-import { BlockCoordinates, Vector3f } from "@serenityjs/protocol";
-import { BlockIdentifier } from "@serenityjs/block";
+import { BlockPosition, Vector3f } from "@serenityjs/protocol";
+// import { BlockIdentifier } from "@serenityjs/block";
 
 import { AABB } from "../../collisions";
 
@@ -14,8 +14,8 @@ class BlockCollisionComponent extends BlockComponent {
 	// List of collision boxes associated with this block.
 	public readonly boxes: Array<AABB>;
 
-	public static readonly types: Array<BlockIdentifier> =
-		Object.values(BlockIdentifier);
+	// public static readonly types: Array<BlockIdentifier> =
+	// 	Object.values(BlockIdentifier);
 
 	/**
 	 * Constructor for the BlockCollisionComponent.
@@ -28,7 +28,7 @@ class BlockCollisionComponent extends BlockComponent {
 
 		// Initialize with a default solid collision box if the block is not air
 		this.boxes = [];
-		if (!block.isSolid()) this.addCollision(BlockCollisionComponent.Solid);
+		if (block.isSolid()) this.addCollision(BlockCollisionComponent.Solid);
 	}
 
 	/**
@@ -46,9 +46,7 @@ class BlockCollisionComponent extends BlockComponent {
 		// Iterate through each collision box and check for intersections.
 		for (const box of this.boxes) {
 			// Move the box to the block's position and check for intersections.
-			const movedBox = box.move(
-				BlockCoordinates.toVector3f(this.block.position)
-			);
+			const movedBox = box.move(BlockPosition.toVector3f(this.block.position));
 			const result = AABB.Intercept(movedBox, start, end);
 
 			// Continue if no intersection is found.

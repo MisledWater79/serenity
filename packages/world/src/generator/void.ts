@@ -1,10 +1,9 @@
-import { BlockPermutation, BlockIdentifier } from "@serenityjs/block";
+import { BlockIdentifier } from "@serenityjs/block";
+import { Vector3f, type DimensionType } from "@serenityjs/protocol";
 
 import { Chunk } from "../chunk";
 
 import { TerrainGenerator } from "./generator";
-
-import type { DimensionType } from "@serenityjs/protocol";
 
 class Void extends TerrainGenerator {
 	/**
@@ -12,14 +11,7 @@ class Void extends TerrainGenerator {
 	 */
 	public static readonly identifier = "void";
 
-	public readonly bedrock: BlockPermutation;
-
-	public constructor() {
-		super(0);
-
-		// Get the bedrock block permutation.
-		this.bedrock = BlockPermutation.resolve(BlockIdentifier.Bedrock);
-	}
+	public bedrock = this.palette.resolvePermutation(BlockIdentifier.Bedrock);
 
 	public apply(cx: number, cz: number, type: DimensionType): Chunk {
 		// Create the chunk.
@@ -28,7 +20,7 @@ class Void extends TerrainGenerator {
 		// Check if the chunk x & z are 0.
 		if (chunk.x === 0 && chunk.z === 0) {
 			// Set the center block to bedrock.
-			chunk.setPermutation(0, 0, 0, this.bedrock, false);
+			chunk.setPermutation(new Vector3f(0, 0, 0), this.bedrock, false);
 		}
 
 		// Return the chunk.

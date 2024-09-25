@@ -1,9 +1,10 @@
 import {
-	BlockCoordinates,
+	BlockPosition,
 	ChunkCoords,
 	type DataPacket,
 	type DimensionType,
 	type IPosition,
+	PlaySoundPacket,
 	TextPacket,
 	TextPacketType,
 	Vector3f
@@ -18,19 +19,21 @@ import { Entity } from "../entity";
 import { Player } from "../player";
 import { Block } from "../block";
 import {
-	BlockComponent,
 	BlockStateComponent,
-	EntityComponent,
+	type EntityComponent,
 	EntityHasGravityComponent,
 	EntityItemComponent,
 	EntityPhysicsComponent
 } from "../components";
 import { ChunkReadSignal } from "../events";
+import { ItemStack } from "../item";
 
+import { TickSchedule } from "./schedule";
+
+import type { DimensionSoundOptions } from "../options";
 import type { DimensionBounds } from "../types";
 import type { Chunk } from "../chunk";
 import type { Items } from "@serenityjs/item";
-import type { ItemStack } from "../item";
 import type { TerrainGenerator } from "../generator";
 import type { World } from "./world";
 
@@ -63,7 +66,7 @@ class Dimension {
 	/**
 	 * The blocks that contain components in the dimension.
 	 */
-	public readonly blocks: Map<BlockCoordinates, Block>;
+	public readonly blocks: Map<bigint, Block>;
 
 	/**
 	 * The spawn position of the dimension.
@@ -73,12 +76,12 @@ class Dimension {
 	/**
 	 * The view distance of the dimension.
 	 */
-	public viewDistance: number = 256;
+	public viewDistance: number = 16;
 
 	/**
 	 * The simulation distance of the dimension.
 	 */
-	public simulationDistance: number = 128;
+	public simulationDistance: number = 8;
 
 	/**
 	 * The min-max dimension build limits
@@ -126,19 +129,24 @@ class Dimension {
 			// Check if there is a player within the simulation distance to tick the entity
 			const inSimulationRange = positions.some((position) => {
 				const distance = position.distance(entity.position);
-				return distance <= this.simulationDistance;
+				return distance <= this.simulationDistance << 4;
 			});
 
 			// Tick the entity if it is in simulation range
 			if (inSimulationRange) {
+				// Iterate over all the components in the entity
 				for (const component of entity.components.values())
 					try {
 						component.onTick?.(deltaTick);
 					} catch (reason) {
+						// Log the error to the console
 						this.world.logger.error(
 							`Failed to tick entity component "${component.identifier}" for entity "${entity.type.identifier}:${entity.unique}" in dimension "${this.identifier}"`,
 							reason
 						);
+
+						// Remove the component from the entity
+						entity.components.delete(component.identifier);
 					}
 			}
 		}
@@ -160,17 +168,39 @@ class Dimension {
 
 			// Tick the block if it is in simulation range
 			if (inSimulationRange) {
-				for (const component of block.components.values())
+				// Iterate over all the components in the block
+				// Try to tick the block component
+				for (const component of block.getComponents())
 					try {
 						component.onTick?.(deltaTick);
 					} catch (reason) {
+						// Log the error to the console
 						this.world.logger.error(
 							`Failed to tick block component "${component.identifier}" for block "${block.position.x}, ${block.position.y}, ${block.position.z}" in dimension "${this.identifier}"`,
 							reason
 						);
+
+						// Remove the component from the block
+						block.components.delete(component.identifier);
 					}
 			}
 		}
+	}
+
+	/**
+	 * Schedules a tick to be executed after a certain amount of ticks.
+	 * @param ticks The amount of ticks to wait before the schedule is complete.
+	 * @returns The tick schedule that was created.
+	 */
+	public schedule(ticks: number): TickSchedule {
+		// Create a new tick schedule
+		const schedule = new TickSchedule(ticks, this);
+
+		// Add the schedule to the world
+		this.world.schedules.add(schedule);
+
+		// Return the schedule
+		return schedule;
 	}
 
 	/**
@@ -393,69 +423,86 @@ class Dimension {
 	 * @returns The block.
 	 */
 	public getBlock(position: IPosition): Block {
-		// Create a new position vector
-		const { x, y, z } = position;
+		// Get X and Z coordinates to get the chunk of the position.
+		const { x, z } = position;
+		const hash = BlockPosition.hash(position as BlockPosition);
 
-		// Check if the block is in the blocks
-		const block = [...this.blocks.entries()].find(
-			([pos]) => pos.x === x && pos.y === y && pos.z === z
-		);
+		// Get the block from the block cache.
+		const block = this.blocks.get(hash);
 
-		// Check if the block is in the blocks
-		if (block) {
-			// Get the block from the blocks
-			return block[1] as Block;
-		} else {
-			// Get the chunk
+		// If the block is in the block cache, return it.
+		if (block) return block;
+		else {
+			// Get the chunk position
 			const chunk = this.getChunk(x >> 4, z >> 4);
 
-			// Get the block permutation
-			const permutation = chunk.getPermutation(x, y, z);
+			// Get the block permutation at the block's position
+			const permutation = chunk.getPermutation(position);
 
 			// Convert the permutation to a block.
 			const block = new Block(
 				this,
 				permutation,
-				new BlockCoordinates(position.x, position.y, position.z)
+				new BlockPosition(position.x, position.y, position.z)
 			);
 
-			// Register the components to the block.
-			for (const component of BlockComponent.registry.get(
+			// Get the components of the block.
+			const components = this.world.blocks.getRegistry(
 				permutation.type.identifier
-			) ?? [])
-				new component(block, component.identifier);
+			);
 
 			// Register the components that are type specific.
 			for (const identifier of permutation.type.components) {
 				// Get the component from the registry
-				const component = BlockComponent.components.get(identifier);
+				const component = this.world.blocks.getComponent(identifier);
 
 				// Check if the component exists.
-				if (component) new component(block, identifier);
+				if (component) components.push(component);
 			}
 
+			// Register the components that are state specific.
 			for (const key of Object.keys(permutation.state)) {
-				// Get the component from the registry
-				const component = [...BlockComponent.components.values()].find((x) => {
-					// If the identifier is undefined, we will skip it.
-					if (!x.identifier || !(x.prototype instanceof BlockStateComponent))
-						return false;
+				// Iterate over the components in the registry.
+				for (const component of this.world.blocks.getAllComponents()) {
+					// Check if the component is a BlockStateComponent.
+					if (component.prototype instanceof BlockStateComponent) {
+						// Get the component as a BlockStateComponent.
+						const componentx = component as typeof BlockStateComponent;
 
-					// Initialize the component as a BlockStateComponent.
-					const component = x as typeof BlockStateComponent;
+						// Check if the component has the same state.
+						if (componentx.state === key) {
+							components.push(component);
+						}
+					}
+				}
+			}
 
-					// Check if the identifier includes the key.
-					// As some states dont include a namespace.
-					return component.state === key;
-				});
+			// Attempt to register the components.
+			for (const component of components) {
+				// Check if the component is already registered.
+				if (block.components.has(component.identifier)) continue;
 
-				// Check if the component exists.
-				if (component) new component(block, key);
+				// Try to create a new component.
+				try {
+					// Create a new component.
+					const instance = new component(block, component.identifier);
+
+					// Register the component.
+					block.components.set(component.identifier, instance);
+				} catch (reason) {
+					// Get the position of the block.
+					const { x, y, z } = block.position;
+
+					// Log the error to the console.
+					this.world.logger.error(
+						`Failed to create component "${component.identifier}" for block "${permutation.type.identifier}" at ${x}, ${y}, ${z}.`,
+						reason
+					);
+				}
 			}
 
 			// If the block has components add it to the blocks
-			if (block.components.size > 0)
-				this.blocks.set(position as BlockCoordinates, block);
+			this.blocks.set(hash, block);
 
 			// Return the block
 			return block;
@@ -538,7 +585,12 @@ class Dimension {
 		// Register all valid components to the entity
 		for (const identifier of entity.type.components) {
 			// Get the component from the entity component registry
-			const component = EntityComponent.get(identifier);
+			const component = this.world.entities.getComponent(
+				identifier
+			) as typeof EntityComponent;
+
+			// Check if the component is valid
+			if (!component) continue;
 
 			// Check if the component is valid
 			if (component) {
@@ -591,6 +643,50 @@ class Dimension {
 
 		// Return the item entity
 		return entity;
+	}
+
+	/**
+	 * Create an item stack in the dimension.
+	 * @param identifier The identifier of the item.
+	 * @param amount The amount of the item.
+	 * @param metadata The metadata of the item.
+	 * @returns The item stack that was created.
+	 */
+	public createItemStack<T extends keyof Items>(
+		identifier: T,
+		amount: number,
+		metadata: number
+	): ItemStack<T> {
+		return new ItemStack(identifier, amount, metadata, this);
+	}
+
+	/**
+	 * Plays a sound in the dimension.
+	 * @param sound The sound to play.
+	 * @param position The position to play the sound at.
+	 * @param options The options of the sound.
+	 */
+	public playSound(
+		sound: string,
+		position: BlockPosition,
+		options?: DimensionSoundOptions
+	): void {
+		// Create a new PlaySoundPacket
+		const packet = new PlaySoundPacket();
+
+		// Mojank...
+		position.x *= 8;
+		position.y *= 8;
+		position.z *= 8;
+
+		// Set the packet properties
+		packet.name = sound;
+		packet.position = position;
+		packet.volume = options?.volume ?? 1;
+		packet.pitch = options?.pitch ?? 1;
+
+		// Broadcast the packet
+		this.broadcast(packet);
 	}
 }
 

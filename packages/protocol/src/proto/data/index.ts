@@ -89,6 +89,7 @@ export * from "./resource-pack-data-info";
 export * from "./resource-pack-chunk-data";
 export * from "./resource-pack-chunk-request";
 export * from "./transfer";
+export * from "./play-sound";
 export * from "./set-player-inventory-options";
 export * from "./set-hud";
 export * from "./award-achievement";
@@ -114,5 +115,7 @@ export * from "./block-event";
 export * from "./entity-pick-request";
 export * from "./hurt-armor";
 export * from "./show-credits";
-
 export * from "./update-client-input-locks";
+export * from "./serverbound-diagnostics";
+export * from "./set-actor-link";
+export * from "./stop-sound";

@@ -6,6 +6,7 @@ import {
 	type Dimension,
 	Entity,
 	Player,
+	PlayerDataWriteSignal,
 	SubChunk,
 	type TerrainGenerator,
 	World,
@@ -13,7 +14,11 @@ import {
 	WorldProvider
 } from "@serenityjs/world";
 import { Logger, LoggerColors } from "@serenityjs/logger";
-import { ChunkCoords, DimensionType } from "@serenityjs/protocol";
+import {
+	BlockPosition,
+	ChunkCoords,
+	DimensionType
+} from "@serenityjs/protocol";
 import { Leveldb } from "@serenityjs/leveldb";
 import { BinaryStream, Endianness } from "@serenityjs/binarystream";
 import { CompoundTag } from "@serenityjs/nbt";
@@ -441,6 +446,12 @@ class LevelDBProvider extends WorldProvider {
 		const nbt = Entity.serialize(player);
 		nbt.createStringTag("Username", player.username);
 
+		// Create a new PlayerDataWriteSignal instance.
+		const signal = new PlayerDataWriteSignal(player, nbt);
+
+		// Check if the signal was cancelled.
+		if (!signal.emit()) return;
+
 		// Create a new BinaryStream instance.
 		const stream = new BinaryStream();
 		CompoundTag.write(stream, nbt);
@@ -449,7 +460,7 @@ class LevelDBProvider extends WorldProvider {
 		this.db.put(Buffer.from(key), stream.getBuffer());
 	}
 
-	public save(shutdown?: boolean): void {
+	public save(): void {
 		// Iterate through the chunks and write them to the database.
 		for (const [dimension, chunks] of this.chunks) {
 			// Iterate through the chunks and write them to the database
@@ -478,16 +489,19 @@ class LevelDBProvider extends WorldProvider {
 			}
 
 			// Get the block data from the dimension.
-			const blockData = [...dimension.blocks.values()].map((x) =>
-				Block.serialize(x)
+			// And filter out the air blocks.
+			const blockData = [...dimension.blocks.values()]
+				.filter((x) => !x.isAir())
+				.map((x) => Block.serialize(x));
+
+			// Log the amount of blocks being saved.
+			LevelDBProvider.logger.debug(
+				`Saving ${blockData.length} blocks for dimension ${dimension.identifier} in world ${this.world.identifier}.`
 			);
 
 			// Write the block data to the database.
 			this.writeBlockData(dimension, blockData);
 		}
-
-		// If the provider is shutting down, close the database connection.
-		if (shutdown) this.db.close();
 	}
 
 	/**
@@ -531,6 +545,66 @@ class LevelDBProvider extends WorldProvider {
 
 		// Write the chunk version to the database.
 		this.db.put(key, Buffer.from([version]));
+	}
+
+	public onStartup(): void {
+		// Get the provider instance for the world.
+		const provider = this.world.provider;
+
+		// Iterate through the dimensions and read the block data and actors from the database.
+		for (const [, dimension] of this.world.dimensions) {
+			// Read the available actors for the dimension.
+			const uniqueIds = provider.readAvailableActors(dimension);
+
+			// Iterate through the unique identifiers and spawn the entities.
+			for (const uniqueId of uniqueIds) {
+				// Read the entity from the provider.
+				const entity = provider.readEntity(dimension, uniqueId);
+
+				// Deserialize the entity and add it to the dimension.
+				const instance = Entity.deserialize(entity, dimension);
+
+				// Spawn the entity in the dimension.
+				instance.spawn();
+			}
+
+			// Read the block data for the dimension.
+			const blockData = provider.readBlockData(dimension);
+
+			// Iterate through the block data and deserialize the blocks.
+			for (const nbt of blockData) {
+				// Deserialize the block from the nbt.
+				const block = Block.deserialize(dimension, nbt);
+
+				// Get the position block hash.
+				const hash = BlockPosition.hash(block.position);
+
+				// Add the block to the dimension.
+				dimension.blocks.set(hash, block);
+			}
+		}
+	}
+
+	public onShutdown(): void {
+		// Save the world data to the database.
+		this.save();
+
+		// Iterate through the dimensions and shutdown the generators.
+		for (const [, dimension] of this.world.dimensions) {
+			// get the generator for the dimension.
+			const generator = dimension.generator;
+
+			// Check if the generator has a worker.
+			if (!generator.worker) continue;
+
+			// Send the shutdown signal to the worker.
+			generator.worker
+				.terminate()
+				.catch((reason) => LevelDBProvider.logger.error(reason));
+		}
+
+		// Close the LevelDB database.
+		this.db.close();
 	}
 
 	public static initialize(
@@ -578,7 +652,7 @@ class LevelDBProvider extends WorldProvider {
 						: DimensionType.End;
 
 			// Create a new instance of the generator & dimension.
-			const instance = new dgenerator(config.seed);
+			const instance = new dgenerator(world.blocks, config.seed);
 			const dimension = world.createDimension(identifier, dim, instance);
 
 			// Set the view distance for the dimension.
@@ -595,33 +669,6 @@ class LevelDBProvider extends WorldProvider {
 			dimension.spawn.y = y;
 			dimension.spawn.z = z;
 
-			// Read the available actors for the dimension.
-			const uniqueIds = provider.readAvailableActors(dimension);
-
-			// Iterate through the unique identifiers and spawn the entities.
-			for (const uniqueId of uniqueIds) {
-				// Read the entity from the provider.
-				const entity = provider.readEntity(dimension, uniqueId);
-
-				// Deserialize the entity and add it to the dimension.
-				const instance = Entity.deserialize(entity, dimension);
-
-				// Spawn the entity in the dimension.
-				instance.spawn();
-			}
-
-			// Read the block data for the dimension.
-			const blockData = provider.readBlockData(dimension);
-
-			// Iterate through the block data and deserialize the blocks.
-			for (const nbt of blockData) {
-				// Deserialize the block from the nbt.
-				const block = Block.deserialize(dimension, nbt);
-
-				// Add the block to the dimension.
-				dimension.blocks.set(block.position, block);
-			}
-
 			// Debug log the dimension creation.
 			this.logger.debug(
 				`Created dimension "${dimension.identifier}" with generator "${dimension.generator.identifier}" in world "${world.identifier}"`
@@ -635,7 +682,7 @@ class LevelDBProvider extends WorldProvider {
 			const sz = dimension.spawn.z >> 4;
 
 			// Get the view distance of the dimension.
-			const viewDistance = dimension.viewDistance >> 4;
+			const viewDistance = dimension.viewDistance;
 
 			// Calculate the amount of chunks to pregenerate.
 			const amount = (viewDistance * 2 + 1) ** 2;
@@ -651,8 +698,11 @@ class LevelDBProvider extends WorldProvider {
 					// Read the chunk from the provider.
 					const chunk = provider.readChunk(sx + x, sz + z, dimension);
 
+					// Check if the chunk is ready.
+					if (!chunk.ready) continue;
+
 					// Serialize the chunk, the will cache the chunk in the provider.
-					Chunk.serialize(chunk);
+					chunk.cache = Chunk.serialize(chunk);
 
 					// Set the dirty flag to false.
 					chunk.dirty = false;

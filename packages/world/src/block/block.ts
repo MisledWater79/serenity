@@ -1,13 +1,16 @@
 import {
 	BlockActorDataPacket,
-	BlockCoordinates,
+	BlockPosition,
 	BlockFace,
 	LevelSoundEvent,
 	LevelSoundEventPacket,
 	UpdateBlockFlagsType,
 	UpdateBlockLayerType,
 	UpdateBlockPacket,
-	Vector3f
+	Vector3f,
+	Gamemode,
+	LevelEventPacket,
+	LevelEvent
 } from "@serenityjs/protocol";
 import {
 	BlockPermutation,
@@ -15,7 +18,7 @@ import {
 	BlockType,
 	type BlockState
 } from "@serenityjs/block";
-import { ItemIdentifier, ItemType } from "@serenityjs/item";
+import { type ItemIdentifier, ItemType } from "@serenityjs/item";
 import {
 	CompoundTag,
 	IntTag,
@@ -28,7 +31,7 @@ import {
 import { ItemStack } from "../item";
 import {
 	BlockCollisionComponent,
-	BlockComponent,
+	type BlockComponent,
 	BlockStateComponent
 } from "../components";
 import {
@@ -37,11 +40,13 @@ import {
 	PlayerInteractWithBlockSignal,
 	PlayerPlaceBlockSignal
 } from "../events";
+import { BlockToolType } from "../enums";
 
-import type { BlockComponents, BlockUpdateOptions } from "../types";
+import type { BlockUpdateOptions } from "../options";
+import type { BlockComponents } from "../types";
 import type { Chunk } from "../chunk";
 import type { Player } from "../player";
-import type { Dimension } from "../world";
+import type { Dimension, World } from "../world";
 
 class Block {
 	/**
@@ -52,7 +57,7 @@ class Block {
 	/**
 	 * The position of the block.
 	 */
-	public readonly position: BlockCoordinates;
+	public readonly position: BlockPosition;
 
 	/**
 	 * The components of the block.
@@ -78,7 +83,7 @@ class Block {
 	public constructor(
 		dimension: Dimension,
 		permutation: BlockPermutation,
-		position: BlockCoordinates
+		position: BlockPosition
 	) {
 		this.dimension = dimension;
 		this.permutation = permutation;
@@ -104,6 +109,14 @@ class Block {
 	 */
 	public isSolid(): boolean {
 		return this.permutation.type.solid;
+	}
+
+	/**
+	 * Gets the world the block is in.
+	 * @returns The world the block is in.
+	 */
+	public getWorld(): World {
+		return this.dimension.world;
 	}
 
 	/**
@@ -157,10 +170,12 @@ class Block {
 		// Set the component to the block.
 		this.components.set(component.identifier, component);
 
+		// Get the hash of the block.
+		const hash = BlockPosition.hash(this.position);
+
 		// Check if the dimension already has the block.
 		// If not, we will add it to the cache.
-		if (!this.dimension.blocks.has(this.position))
-			this.dimension.blocks.set(this.position, this);
+		if (!this.dimension.blocks.has(hash)) this.dimension.blocks.set(hash, this);
 	}
 
 	/**
@@ -262,8 +277,7 @@ class Block {
 		const oldPermutation = this.permutation;
 
 		// Query with the clearComponents option.
-		const clear =
-			options?.clearComponents === undefined ? true : options.clearComponents;
+		const clear = options?.clearComponents ? true : options?.clearComponents;
 
 		// Clear the previous components.
 		if (this.permutation.type !== permutation.type && clear)
@@ -279,7 +293,7 @@ class Block {
 		const chunk = this.dimension.getChunk(x >> 4, z >> 4);
 
 		// Set the permutation of the block.
-		chunk.setPermutation(x, y, z, this.permutation);
+		chunk.setPermutation(this.position, this.permutation);
 
 		// Create a new UpdateBlockPacket.
 		const update = new UpdateBlockPacket();
@@ -294,40 +308,61 @@ class Block {
 		this.dimension.broadcast(update);
 
 		// If the components should be cleared, we will register the new components.
-		if (clear) {
-			// Register the components to the block.
-			for (const component of BlockComponent.registry.get(
-				permutation.type.identifier
-			) ?? [])
-				new component(this, component.identifier);
+		if (clear) this.components.clear();
 
-			// Register the components that are type specific.
-			for (const identifier of permutation.type.components) {
-				// Get the component from the registry
-				const component = BlockComponent.components.get(identifier);
+		// Get the world of the block.
+		const world = this.dimension.world;
 
-				// Check if the component exists.
-				if (component) new component(this, identifier);
+		// Get the components of the block.
+		const components = world.blocks.getRegistry(permutation.type.identifier);
+
+		// Register the components that are type specific.
+		for (const identifier of permutation.type.components) {
+			// Get the component from the registry
+			const component = world.blocks.getComponent(identifier);
+
+			// Check if the component exists.
+			if (component) components.push(component);
+		}
+
+		// Register the components that are state specific.
+		for (const key of Object.keys(permutation.state)) {
+			// Iterate over the components in the registry.
+			for (const component of world.blocks.getAllComponents()) {
+				// Check if the component is a BlockStateComponent.
+				if (component.prototype instanceof BlockStateComponent) {
+					// Get the component as a BlockStateComponent.
+					const componentx = component as typeof BlockStateComponent;
+
+					// Check if the component has the same state.
+					if (componentx.state === key) {
+						components.push(component);
+					}
+				}
 			}
+		}
 
-			// Register the components that are state specific.
-			for (const key of Object.keys(permutation.state)) {
-				// Get the component from the registry
-				const component = [...BlockComponent.components.values()].find((x) => {
-					// If the identifier is undefined, we will skip it.
-					if (!x.identifier || !(x.prototype instanceof BlockStateComponent))
-						return false;
+		// Attempt to register the components.
+		for (const component of components) {
+			// Check if the component is already registered.
+			if (this.components.has(component.identifier)) continue;
 
-					// Initialize the component as a BlockStateComponent.
-					const component = x as typeof BlockStateComponent;
+			// Try to create a new component.
+			try {
+				// Create a new component.
+				const instance = new component(this, component.identifier);
 
-					// Check if the identifier includes the key.
-					// As some states dont include a namespace.
-					return component.state === key;
-				});
+				// Register the component.
+				this.components.set(component.identifier, instance);
+			} catch (reason) {
+				// Get the position of the block.
+				const { x, y, z } = this.position;
 
-				// Check if the component exists.
-				if (component) new component(this, key);
+				// Log the error to the console.
+				this.getWorld().logger.error(
+					`Failed to create component "${component.identifier}" for block "${permutation.type.identifier}" at ${x}, ${y}, ${z}.`,
+					reason
+				);
 			}
 		}
 
@@ -378,8 +413,10 @@ class Block {
 			this.dimension.broadcast(sound);
 		}
 
+		const updateBlock = options?.updateBlock ?? true;
+
 		// Update the block and the surrounding blocks.
-		this.update(true);
+		if (updateBlock) this.update(true);
 
 		// Check if there is an entity on the block.
 		for (const entity of this.dimension.entities.values()) {
@@ -461,48 +498,39 @@ class Block {
 		const type = ItemType.resolve(this.permutation.type) as ItemType;
 
 		// Create a new ItemStack.
-		return ItemStack.create(type, amount ?? 1, this.permutation.index);
+		return ItemStack.create(
+			type,
+			amount ?? 1,
+			this.permutation.index,
+			this.dimension
+		);
+	}
+
+	/**
+	 * Gets the tool type required to break the block.
+	 * @returns
+	 */
+	public getToolType(): BlockToolType {
+		// TODO: Implement tool type checking.
+
+		return BlockToolType.None;
 	}
 
 	/**
 	 * Gets the tool required to break the block.
 	 * @returns The tool required to break the block.
 	 */
-	public getTool(): ItemIdentifier {
-		// Get the tags of the block.
-		const tags = this.getTags().sort((a, b) => b.localeCompare(a));
+	public isToolCompatible(_itemStack: ItemStack): boolean {
+		// Get the block type.
+		const blockType = this.getType();
 
-		// Iterate over the tags.
-		for (const tag of tags) {
-			switch (tag) {
-				case "wooden_axe_diggable": {
-					return ItemIdentifier.WoodenAxe;
-				}
+		// If the hardness is less than 0, no tool is compatible.
+		if (blockType.hardness < 0) return false;
 
-				case "stone_pick_diggable": {
-					return ItemIdentifier.StonePickaxe;
-				}
+		// Check if the tool type is none.
+		if (this.getToolType() === BlockToolType.None) return true;
 
-				case "iron_pick_diggable": {
-					return ItemIdentifier.IronPickaxe;
-				}
-
-				case "golden_pick_diggable": {
-					return ItemIdentifier.GoldenPickaxe;
-				}
-
-				case "diamond_pick_diggable": {
-					return ItemIdentifier.DiamondPickaxe;
-				}
-
-				case "netherite_pick_diggable": {
-					return ItemIdentifier.NetheritePickaxe;
-				}
-			}
-		}
-
-		// Return the default tool.
-		return ItemIdentifier.Air;
+		return true;
 	}
 
 	/**
@@ -607,24 +635,36 @@ class Block {
 
 	/**
 	 * Destroys the block.
-	 * @param playerInitiated If the block was destroyed by a player.
+	 * @param The options of the block update.
 	 * @returns Whether or not the block was destroyed.
 	 */
-	public destroy(playerInitiated?: Player): boolean {
+	public destroy(options?: BlockUpdateOptions): boolean {
+		// Call the onBreak method of the components.
+		let cancelled = false;
+		for (const component of this.components.values()) {
+			// Call the onBlockBrokenByPlayer method.
+			const result = component.onBreak?.(options?.player);
+
+			// Check if the result is false.
+			if (result === false) {
+				// Set the cancelled flag to true.
+				cancelled = true;
+			}
+		}
+
 		// Check if the destruction was initiated by a player.
-		if (playerInitiated) {
+		if (options?.player) {
+			// Get the player that initiated the destruction.
+			const player = options.player;
+
 			// Get the inventory of the player.
-			const inventory = playerInitiated.getComponent("minecraft:inventory");
+			const inventory = player.getComponent("minecraft:inventory");
 
 			// Get the held item of the player.
 			const itemStack = inventory.getHeldItem();
 
 			// Create a new PlayerBreakBlockSignal.
-			const signal = new PlayerBreakBlockSignal(
-				this,
-				playerInitiated,
-				itemStack
-			);
+			const signal = new PlayerBreakBlockSignal(this, player, itemStack);
 
 			// Emit the signal to the dimension.
 			const value = signal.emit();
@@ -635,25 +675,80 @@ class Block {
 				// Return false as the signal was cancelled.
 				return false;
 			}
-		}
 
-		// Call the onBreak method of the components.
-		for (const component of this.components.values()) {
-			// Call the onBlockBrokenByPlayer method.
-			component.onBreak?.(playerInitiated);
+			// Check if the player is not in creative mode.
+			if (player.getGamemode() !== Gamemode.Creative && !cancelled) {
+				// Get the position of the block.
+				const { x, y, z } = this.position;
+
+				// Iterate over the drops of the block.
+				for (const drop of this.getType().drops) {
+					// Check if the drop is air, if so we will skip it.
+					if (drop.type === BlockIdentifier.Air) continue;
+
+					// Roll the drop amount.
+					const amount = drop.roll();
+
+					// Check if the amount is less than or equal to 0.
+					if (amount <= 0) continue;
+
+					// Create a new ItemStack.
+					const itemType = ItemType.get(
+						drop.type as ItemIdentifier
+					) as ItemType;
+
+					// Create a new ItemStack.
+					const itemStack = ItemStack.create(
+						itemType,
+						amount,
+						0,
+						this.dimension
+					);
+
+					// Create a new ItemEntity.
+					const itemEntity = this.dimension.spawnItem(
+						itemStack,
+						new Vector3f(x + 0.5, y + 0.5, z + 0.5)
+					);
+
+					// Add random x & z velocity to the item entity.
+					const velocity = new Vector3f(
+						Math.random() * 0.1 - 0.05,
+						itemEntity.velocity.y,
+						Math.random() * 0.1 - 0.05
+					);
+
+					// Add the velocity to the item entity.
+					itemEntity.addMotion(velocity);
+				}
+			}
+
+			// Get the position of the block.
+			const { x, y, z } = this.position;
+
+			// Emit the block break particles to the dimension.
+			// Create a new LevelEvent packet.
+			const event = new LevelEventPacket();
+			event.event = LevelEvent.ParticlesDestroyBlock;
+			event.position = new Vector3f(x, y, z);
+			event.data = this.permutation.network;
+
+			// Broadcast the event to the dimension.
+			this.dimension.broadcast(event);
 		}
 
 		// Get the air permutation.
 		const air = BlockPermutation.resolve(BlockIdentifier.Air);
 
 		// Set the block permutation to air.
-		const placed = this.setPermutation(air);
+		const placed = this.setPermutation(air, options);
 
 		// Check if the block was not placed.
 		if (!placed) return false;
 
 		// Since the block is becoming air, we can remove the block from the dimension cache to save memory.
-		this.dimension.blocks.delete(this.position);
+		const hash = BlockPosition.hash(this.position);
+		this.dimension.blocks.delete(hash);
 
 		return true;
 	}
@@ -695,7 +790,7 @@ class Block {
 	 * @returns Wether or not the block has any existing collision
 	 */
 	public hasCollision(): boolean {
-		if (!this.isAir()) return false;
+		if (this.isAir()) return false;
 		if (!this.hasComponent("minecraft:collision_box"))
 			new BlockCollisionComponent(this);
 		return this.getComponent("minecraft:collision_box").boxes.length > 0;
@@ -743,10 +838,33 @@ class Block {
 	}
 
 	/**
+	 * Get the time it takes to break the block.
+	 * @param itemStack The item stack used to break the block.
+	 * @returns The time it takes to break the block.
+	 */
+	public getBreakTime(itemStack?: ItemStack): number {
+		// Get the type of the block.
+		const type = this.getType();
+
+		// Get the hardness of the block.
+		let hardness = type.hardness;
+
+		if (!itemStack && this.getToolType() === BlockToolType.None) {
+			hardness *= 1.5;
+		} else if (itemStack && this.isToolCompatible(itemStack)) {
+			hardness *= 1.5;
+		} else {
+			hardness *= 5;
+		}
+
+		return Math.ceil(hardness * 20);
+	}
+
+	/**
 	 * Gets the hash of the block.
 	 * @param coordinates The coordinates of the block.
 	 */
-	public static getHash(coordinates: BlockCoordinates): bigint {
+	public static getHash(coordinates: BlockPosition): bigint {
 		return (
 			((BigInt(coordinates.x) & 0xff_ff_ff_ffn) << 32n) |
 			(BigInt(coordinates.z) & 0xff_ff_ff_ffn) |
@@ -767,10 +885,13 @@ class Block {
 		// Create the components list tag.
 		const components = root.createListTag("SerenityComponents", Tag.Compound);
 
+		// Get the world of the block.
+		const world = block.dimension.world;
+
 		// Iterate over the components and serialize them.
 		for (const component of block.getComponents()) {
 			// Get the component type.
-			const type = BlockComponent.components.get(component.identifier);
+			const type = world.blocks.getComponent(component.identifier);
 			if (!type) continue;
 
 			// Create a data compound tag for the data to be written to.
@@ -810,7 +931,7 @@ class Block {
 		const z = nbt.getTag("z")?.value as number;
 
 		// Create a new block position.
-		const position = new BlockCoordinates(x, y, z);
+		const position = new BlockPosition(x, y, z);
 
 		// Create a new block.
 		const block = new Block(dimension, permutation, position);
@@ -819,13 +940,16 @@ class Block {
 		const components =
 			nbt.getTag<ListTag<CompoundTag>>("SerenityComponents")?.value ?? [];
 
+		// Get the world of the block.
+		const world = dimension.world;
+
 		// Iterate over the components and deserialize them.
 		for (const componentTag of components) {
 			// Get the component identifier.
 			const identifier = componentTag.getTag("identifier")?.value as string;
 
 			// Get the component type.
-			const type = BlockComponent.components.get(identifier);
+			const type = world.blocks.getComponent(identifier);
 			if (!type) continue;
 
 			// Deserialize the component.

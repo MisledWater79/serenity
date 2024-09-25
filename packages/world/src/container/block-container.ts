@@ -2,6 +2,7 @@ import {
 	type ContainerId,
 	ContainerOpenPacket,
 	ContainerType,
+	FullContainerName,
 	InventoryContentPacket,
 	InventorySlotPacket,
 	NetworkItemStackDescriptor
@@ -74,8 +75,9 @@ class BlockContainer extends Container {
 		// Calculate the amount of empty slots in the container.
 		this.calculateEmptySlotCount();
 
-		// Set the items container instance.
+		// Set the items container instance & dimension
 		item.container = this;
+		item.dimension = this.block.dimension;
 
 		// Check if the container has an occupant.
 		if (this.occupants.size === 0) return;
@@ -132,7 +134,8 @@ class BlockContainer extends Container {
 				const newItem = new ItemStack(
 					item.type.identifier,
 					item.maxAmount,
-					item.metadata
+					item.metadata,
+					this.block.dimension
 				);
 
 				// Add the new Item and decrease it
@@ -193,7 +196,12 @@ class BlockContainer extends Container {
 		this.calculateEmptySlotCount();
 
 		// Create a new item with the removed amount.
-		const newItem = ItemStack.create(item.type, removed, item.metadata);
+		const newItem = ItemStack.create(
+			item.type,
+			removed,
+			item.metadata,
+			this.block.dimension
+		);
 
 		// Clone the components of the item.
 		for (const component of item.components.values()) {
@@ -254,9 +262,10 @@ class BlockContainer extends Container {
 
 		// Set properties of the packet.
 		packet.containerId = this.identifier;
-		packet.dynamicContainerId = 0; // TODO: Implement dynamic containers.
 		packet.slot = slot;
 		packet.item = new NetworkItemStackDescriptor(0);
+		packet.fullContainerName = new FullContainerName(0, 0);
+		packet.dynamicContainerSize = this.size;
 
 		// Send the packet to the occupants.
 		for (const player of this.occupants) player.session.send(packet);
@@ -281,7 +290,8 @@ class BlockContainer extends Container {
 
 		// Set the properties of the packet.
 		packet.containerId = this.identifier;
-		packet.dynamicContainerId = 0; // TODO: Implement dynamic containers.
+		packet.fullContainerName = new FullContainerName(0, 0);
+		packet.dynamicContainerSize = this.size;
 
 		// Map the items in the storage to network item stack descriptors.
 		packet.items = this.storage.map((item) => {
